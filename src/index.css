@@ -1518,3 +1518,352 @@ body {
 .scrollable-log-card {
   max-height: 520px;
 }
+
+/* Nav rewards badge */
+.rewards-nav-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(245, 158, 11, 0.1);
+  color: #fbbf24;
+  padding: 6px 14px;
+  border-radius: 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  box-shadow: 0 0 15px rgba(245, 158, 11, 0.05);
+}
+
+.rewards-nav-badge .glow-icon {
+  animation: pulse 2s infinite;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* Waterfall Chart specific styles */
+.waterfall-chart-container {
+  height: 250px;
+}
+
+.waterfall-card {
+  animation: fadeInUp var(--transition-normal);
+}
+
+/* Credit card routing details */
+.cc-details-row {
+  display: flex;
+  justify-content: space-between;
+  margin-top: -4px;
+  margin-bottom: 12px;
+}
+
+.cc-sub-lbl {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.cc-sub-lbl strong {
+  color: var(--text-secondary);
+}
+
+.cc-rewards-est {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.cc-rewards-est strong {
+  color: #fbbf24;
+}
+
+/* Investment Goal Styles */
+.goals-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.goal-card {
+  background: rgba(20, 184, 166, 0.03);
+  border: 1px solid rgba(20, 184, 166, 0.15);
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: all var(--transition-fast);
+}
+
+.goal-card:hover {
+  background: rgba(20, 184, 166, 0.06);
+  border-color: rgba(20, 184, 166, 0.3);
+}
+
+.goal-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.goal-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.goal-icon {
+  color: #14b8a6;
+}
+
+.goal-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.goal-delete-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  transition: all var(--transition-fast);
+}
+
+.goal-delete-btn:hover {
+  color: var(--expense-red);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.goal-metrics {
+  display: flex;
+  justify-content: space-between;
+}
+
+.goal-metric {
+  display: flex;
+  flex-direction: column;
+}
+
+.goal-lbl {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.goal-val {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.text-teal {
+  color: #14b8a6 !important;
+}
+
+.goal-progress-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.goal-progress-bar {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.goal-progress-fill {
+  height: 100%;
+  background-color: #14b8a6;
+  border-radius: 3px;
+  transition: width var(--transition-normal);
+}
+
+.goal-footer {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+.goal-projection-box {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(20, 184, 166, 0.04);
+  border: 1px solid rgba(20, 184, 166, 0.1);
+  padding: 8px 12px;
+  border-radius: 10px;
+  margin-top: 4px;
+}
+
+.proj-detail {
+  display: flex;
+  flex-direction: column;
+}
+
+.proj-detail span {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+
+.proj-detail strong {
+  font-size: 0.85rem;
+}
+
+.quick-invest-btn {
+  background: rgba(20, 184, 166, 0.12);
+  border: 1px solid rgba(20, 184, 166, 0.25);
+  color: #14b8a6;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.quick-invest-btn:hover {
+  background: #14b8a6;
+  color: #080b11;
+}
+
+/* Spend Envelope styles */
+.envelope-display-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.envelope-progress-section {
+  background: rgba(15, 20, 32, 0.35);
+  border: 1px solid var(--border-color);
+  padding: 16px;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.envelope-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.env-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.env-status-percent {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.env-status-percent.util-green {
+  color: var(--income-green);
+}
+.env-status-percent.util-amber {
+  color: #f59e0b;
+}
+.env-status-percent.util-red {
+  color: var(--expense-red);
+}
+
+.envelope-bar-wrap {
+  height: 8px !important;
+}
+
+.envelope-amounts-row {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+.env-sub-label {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.env-big-amount {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.env-small-amount {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.envelope-details-box {
+  display: flex;
+  justify-content: space-between;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color);
+  padding: 12px 16px;
+  border-radius: 12px;
+}
+
+.envelope-detail-column {
+  display: flex;
+  flex-direction: column;
+}
+
+.env-card-lbl {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.env-card-val {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.text-purple {
+  color: #a855f7 !important;
+}
+
+.envelope-desc-footer {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin-top: -4px;
+}
+
+/* Transaction Card badges */
+.transaction-card-badge {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 5px;
+}
+
+.bill-recur-badge {
+  font-size: 0.62rem;
+  color: var(--accent-blue);
+  font-weight: 600;
+}
+
+.tooltip-card-route {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+

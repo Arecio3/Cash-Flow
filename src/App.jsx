@@ -10,15 +10,15 @@ import {
   DollarSign, 
   Tag, 
   Filter, 
-  ArrowUpRight, 
-  ArrowDownRight, 
   Sparkles,
   RefreshCw,
   Check,
   ChevronLeft,
   ChevronRight,
   CreditCard as CreditCardIcon,
-  X
+  X,
+  Target,
+  Bookmark
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -28,7 +28,7 @@ import {
   YAxis, 
   Tooltip, 
   CartesianGrid,
-  Legend
+  Cell
 } from 'recharts';
 
 // Persistence wrapper
@@ -102,46 +102,49 @@ const getSampleData = () => {
   const yyyymm = `${year}-${month}`;
 
   const defaultCards = [
-    { id: 'cc1', name: 'Chase Freedom', issuer: 'Chase', balance: 0, limit: 5000 },
-    { id: 'cc2', name: 'Amex Gold', issuer: 'Amex', balance: 4500, limit: 15000 },
-    { id: 'cc3', name: 'Apple Card', issuer: 'Apple', balance: 2100, limit: 6000 }
+    { id: 'cc1', name: 'Chase Freedom', issuer: 'Chase', balance: 0, limit: 5000, cashback: 1.5, statementClose: '15th' },
+    { id: 'cc2', name: 'Amex Gold', issuer: 'Amex', balance: 3000, limit: 10000, cashback: 2.0, statementClose: '20th' },
+    { id: 'cc3', name: 'Capital One Venture', issuer: 'Capital One', balance: 6600, limit: 12000, cashback: 2.0, statementClose: '28th' }
   ];
 
   const defaultBills = [
-    { id: 'b1', name: 'Apartment Rent', amount: 1400.00, category: 'Housing', date: `${yyyymm}-01`, paid: true },
-    { id: 'b2', name: 'Electric Bill', amount: 120.00, category: 'Utilities', date: `${yyyymm}-10`, paid: false },
-    { id: 'b3', name: 'Internet (Comcast)', amount: 75.00, category: 'Utilities', date: `${yyyymm}-12`, paid: false },
-    { id: 'b4', name: 'Health Insurance', amount: 220.00, category: 'Healthcare', date: `${yyyymm}-15`, paid: false },
-    { id: 'b5', name: 'Car Insurance', amount: 180.00, category: 'Transport', date: `${yyyymm}-20`, paid: true },
-    { id: 'b6', name: 'Netflix Premium', amount: 22.99, category: 'Entertainment', date: `${yyyymm}-22`, paid: false }
+    { id: 'b1', name: 'Apartment Rent', amount: 1200.00, category: 'Housing', date: `${yyyymm}-01`, paid: true, cardId: 'cc2', recurring: true },
+    { id: 'b2', name: 'Electric Bill', amount: 110.00, category: 'Utilities', date: `${yyyymm}-10`, paid: false, cardId: 'cc1', recurring: true },
+    { id: 'b3', name: 'Comcast Internet', amount: 75.00, category: 'Utilities', date: `${yyyymm}-12`, paid: false, cardId: 'cc1', recurring: true },
+    { id: 'b4', name: 'Health Insurance', amount: 220.00, category: 'Healthcare', date: `${yyyymm}-15`, paid: false, cardId: 'cc3', recurring: true },
+    { id: 'b5', name: 'Car Insurance', amount: 180.00, category: 'Transport', date: `${yyyymm}-20`, paid: true, cardId: 'cc2', recurring: true },
+    { id: 'b6', name: 'Netflix Premium', amount: 22.99, category: 'Entertainment', date: `${yyyymm}-22`, paid: false, cardId: 'cc3', recurring: true }
+  ];
+
+  const defaultGoals = [
+    { id: 'g1', name: 'Emergency Fund', target: 10000, contribution: 400, invested: 3200 }
   ];
 
   const defaultTransactions = [
-    { id: 't1', description: 'Bi-weekly Paycheck', amount: 3200.00, type: 'income', category: 'Income', date: `${yyyymm}-01` },
-    { id: 't2', description: 'Apartment Rent', amount: 1400.00, type: 'expense', category: 'Housing', date: `${yyyymm}-01` },
-    { id: 't3', description: 'Whole Foods', amount: 154.20, type: 'expense', category: 'Food', date: `${yyyymm}-02` },
-    { id: 't4', description: 'Chevron Gas', amount: 48.50, type: 'expense', category: 'Transport', date: `${yyyymm}-03` },
-    { id: 't5', description: 'Restaurant Dinner', amount: 95.00, type: 'expense', category: 'Food', date: `${yyyymm}-04` },
-    { id: 't6', description: 'Electric Bill', amount: 120.00, type: 'expense', category: 'Utilities', date: `${yyyymm}-10` },
-    { id: 't7', description: 'AMC Theater', amount: 32.50, type: 'expense', category: 'Entertainment', date: `${yyyymm}-12` },
-    { id: 't8', description: 'Amex Card Payment', amount: 500.00, type: 'expense', category: 'Credit Card', date: `${yyyymm}-15` },
-    { id: 't9', description: 'Car Insurance', amount: 180.00, type: 'expense', category: 'Transport', date: `${yyyymm}-20` },
-    { id: 't10', description: 'Coffee Shop', amount: 6.75, type: 'expense', category: 'Food', date: `${yyyymm}-21` }
+    { id: 't1', description: 'Bi-weekly Paycheck', amount: 4000.00, type: 'income', category: 'Income', date: `${yyyymm}-01`, cardId: null },
+    { id: 't2', description: 'Paid Bill: Apartment Rent', amount: 1200.00, type: 'expense', category: 'Housing', date: `${yyyymm}-01`, cardId: 'cc2' },
+    { id: 't3', description: 'Whole Foods', amount: 165.50, type: 'expense', category: 'Food', date: `${yyyymm}-02`, cardId: 'cc2' },
+    { id: 't4', description: 'Chevron Gas', amount: 45.20, type: 'expense', category: 'Transport', date: `${yyyymm}-03`, cardId: 'cc1' },
+    { id: 't5', description: 'Coffee Shop', amount: 5.80, type: 'expense', category: 'Food', date: `${yyyymm}-04`, cardId: null },
+    { id: 't6', description: 'Restaurant Dinner', amount: 95.00, type: 'expense', category: 'Food', date: `${yyyymm}-05`, cardId: 'cc2' },
+    { id: 't7', description: 'Paid Bill: Electric Bill', amount: 110.00, type: 'expense', category: 'Utilities', date: `${yyyymm}-10`, cardId: 'cc1' },
+    { id: 't8', description: 'Target Store', amount: 82.30, type: 'expense', category: 'Other', date: `${yyyymm}-14`, cardId: 'cc3' },
+    { id: 't9', description: 'Paid Bill: Car Insurance', amount: 180.00, type: 'expense', category: 'Transport', date: `${yyyymm}-20`, cardId: 'cc2' },
+    { id: 't10', description: 'Local Restaurant', amount: 68.00, type: 'expense', category: 'Food', date: `${yyyymm}-21`, cardId: 'cc2' }
   ];
 
-  return { cards: defaultCards, bills: defaultBills, transactions: defaultTransactions };
+  return { cards: defaultCards, bills: defaultBills, goals: defaultGoals, transactions: defaultTransactions };
 };
 
-const CustomTooltip = ({ active, payload, label }) => {
+const CustomWaterfallTooltip = ({ active, payload }) => {
   if (active && payload && payload.length) {
+    const data = payload[0].payload;
     return (
       <div className="custom-recharts-tooltip">
-        <p className="custom-tooltip-label">{label}</p>
-        {payload.map((pld, index) => (
-          <p key={index} className={`custom-tooltip-value ${pld.name.toLowerCase()}`}>
-            {pld.name}: ${pld.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </p>
-        ))}
+        <p className="custom-tooltip-label">{data.name}</p>
+        <p className="custom-tooltip-value" style={{ color: data.color }}>
+          Value: ${data.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </p>
       </div>
     );
   }
@@ -165,6 +168,16 @@ function App() {
     return saved || getSampleData().bills;
   });
 
+  const [investmentGoals, setInvestmentGoals] = useState(() => {
+    const saved = storage.get('cashflow_investment_goals', null);
+    return saved || getSampleData().goals;
+  });
+
+  // Track manual paid status logs for specific dates (mostly for recurring bills)
+  const [paidBillsLog, setPaidBillsLog] = useState(() => {
+    return storage.get('cashflow_paid_bills_log', {});
+  });
+
   // --- App View States ---
   const [currentDate, setCurrentDate] = useState(new Date());
   const [toasts, setToasts] = useState([]);
@@ -172,6 +185,7 @@ function App() {
   // --- Modals / Interaction States ---
   const [selectedCalendarDay, setSelectedCalendarDay] = useState(null);
   const [showAddCard, setShowAddCard] = useState(false);
+  const [showAddGoal, setShowAddGoal] = useState(false);
   const [payingCardId, setPayingCardId] = useState(null);
   const [paymentAmount, setPaymentAmount] = useState('');
 
@@ -180,12 +194,26 @@ function App() {
   const [newCardLimit, setNewCardLimit] = useState('');
   const [newCardBalance, setNewCardBalance] = useState('');
   const [newCardIssuer, setNewCardIssuer] = useState('Chase');
+  const [newCardCashback, setNewCardCashback] = useState('1.5');
+  const [newCardCloseDay, setNewCardCloseDay] = useState('15th');
   const [cardErrors, setCardErrors] = useState({});
+
+  // --- Add Goal Form States ---
+  const [newGoalName, setNewGoalName] = useState('');
+  const [newGoalTarget, setNewGoalTarget] = useState('');
+  const [newGoalContribution, setNewGoalContribution] = useState('');
+  const [newGoalInvested, setNewGoalInvested] = useState('');
+  const [goalErrors, setGoalErrors] = useState({});
 
   // --- Add Bill Form States (within selected calendar day modal) ---
   const [newBillName, setNewBillName] = useState('');
   const [newBillAmount, setNewBillAmount] = useState('');
   const [newBillCategory, setNewBillCategory] = useState('Utilities');
+  const [newBillCardId, setNewBillCardId] = useState(() => {
+    const saved = storage.get('cashflow_credit_cards', null) || getSampleData().cards;
+    return saved.length > 0 ? saved[0].id : '';
+  });
+  const [newBillRecurring, setNewBillRecurring] = useState(true);
   const [billErrors, setBillErrors] = useState({});
 
   // --- Transaction Form States ---
@@ -193,6 +221,7 @@ function App() {
   const [txAmount, setTxAmount] = useState('');
   const [txType, setTxType] = useState('expense'); // 'income' or 'expense'
   const [txCategory, setTxCategory] = useState('Food');
+  const [txCardId, setTxCardId] = useState('');
   const [txDate, setTxDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [txErrors, setTxErrors] = useState({});
   const [successFlash, setSuccessFlash] = useState(false);
@@ -215,6 +244,14 @@ function App() {
     storage.set('cashflow_bills', bills);
   }, [bills]);
 
+  useEffect(() => {
+    storage.set('cashflow_investment_goals', investmentGoals);
+  }, [investmentGoals]);
+
+  useEffect(() => {
+    storage.set('cashflow_paid_bills_log', paidBillsLog);
+  }, [paidBillsLog]);
+
   // --- Toast Manager Helper ---
   const addToast = (message, toastType = 'success') => {
     const id = generateId();
@@ -223,6 +260,88 @@ function App() {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 3500);
   };
+
+  // --- Auto-Charge Pending Bills on Load ---
+  useEffect(() => {
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    const todayYear = today.getFullYear();
+    const todayMonth = today.getMonth();
+
+    let updatedCards = [...creditCards];
+    let updatedTx = [...transactions];
+    let updatedLog = { ...paidBillsLog };
+    let changed = false;
+
+    bills.forEach((b) => {
+      const bDateObj = new Date(b.date + 'T00:00:00');
+
+      if (!b.recurring) {
+        if (b.date <= todayStr && !b.paid) {
+          b.paid = true;
+          changed = true;
+          if (b.cardId) {
+            updatedCards = updatedCards.map((c) => (c.id === b.cardId ? { ...c, balance: c.balance + b.amount } : c));
+            updatedTx.unshift({
+              id: generateId(),
+              description: `Auto-charged Bill: ${b.name}`,
+              amount: b.amount,
+              type: 'expense',
+              category: b.category,
+              date: b.date,
+              cardId: b.cardId
+            });
+          }
+        }
+      } else {
+        // scan recurring monthly instances from birth date month to today's month
+        const startY = bDateObj.getFullYear();
+        const startM = bDateObj.getMonth();
+        let tempY = startY;
+        let tempM = startM;
+
+        while (tempY < todayYear || (tempY === todayYear && tempM <= todayMonth)) {
+          const daysInMonth = new Date(tempY, tempM + 1, 0).getDate();
+          const targetDay = Math.min(bDateObj.getDate(), daysInMonth);
+          const dateStr = `${tempY}-${String(tempM + 1).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`;
+
+          if (dateStr <= todayStr && !updatedLog[`${b.id}-${dateStr}`]) {
+            updatedLog[`${b.id}-${dateStr}`] = true;
+            changed = true;
+
+            if (b.cardId) {
+              updatedCards = updatedCards.map((c) => (c.id === b.cardId ? { ...c, balance: c.balance + b.amount } : c));
+              updatedTx.unshift({
+                id: generateId(),
+                description: `Auto-charged Bill: ${b.name}`,
+                amount: b.amount,
+                type: 'expense',
+                category: b.category,
+                date: dateStr,
+                cardId: b.cardId
+              });
+            }
+          }
+
+          tempM++;
+          if (tempM > 11) {
+            tempM = 0;
+            tempY++;
+          }
+        }
+      }
+    });
+
+    if (changed) {
+      setTimeout(() => {
+        setCreditCards(updatedCards);
+        setTransactions(updatedTx);
+        setPaidBillsLog(updatedLog);
+        addToast('Auto-charged pending bills to credit cards!');
+      }, 0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // --- Month Navigation Helpers ---
   const handlePrevMonth = () => {
@@ -233,10 +352,44 @@ function App() {
     setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
   };
 
-  // --- Calculations for Top Row Summary Cards ---
+  // --- Map Bills for Navigated Month ---
   const currentYear = currentDate.getFullYear();
   const currentMonth = currentDate.getMonth();
 
+  const monthlyBills = useMemo(() => {
+    return bills.filter((b) => {
+      const bDate = new Date(b.date + 'T00:00:00');
+      const isSameMonth = bDate.getFullYear() === currentYear && bDate.getMonth() === currentMonth;
+      if (isSameMonth) return true;
+
+      if (b.recurring) {
+        const isPrior = bDate.getFullYear() < currentYear || (bDate.getFullYear() === currentYear && bDate.getMonth() <= currentMonth);
+        if (isPrior) return true;
+      }
+      return false;
+    }).map((b) => {
+      const bDate = new Date(b.date + 'T00:00:00');
+      if (b.recurring && (bDate.getFullYear() !== currentYear || bDate.getMonth() !== currentMonth)) {
+        const daysInTarget = new Date(currentYear, currentMonth + 1, 0).getDate();
+        const targetDay = Math.min(bDate.getDate(), daysInTarget);
+        const targetDateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`;
+        
+        return {
+          ...b,
+          date: targetDateStr,
+          paid: paidBillsLog[`${b.id}-${targetDateStr}`] || false
+        };
+      }
+      return b;
+    });
+  }, [bills, paidBillsLog, currentYear, currentMonth]);
+
+  // Total monthly bills due
+  const monthlyBillsTotal = useMemo(() => {
+    return monthlyBills.reduce((sum, b) => sum + b.amount, 0);
+  }, [monthlyBills]);
+
+  // --- Calculations for Top Row Summary & Waterfall Chart ---
   const monthlySummary = useMemo(() => {
     let income = 0;
     let expenses = 0;
@@ -260,18 +413,132 @@ function App() {
     };
   }, [transactions, currentYear, currentMonth]);
 
-  // --- Credit Card Handlers ---
+  // Sum of card payments (staged under 'Credit Card' category as expense)
+  const monthlyCardPayoffsTotal = useMemo(() => {
+    return transactions.reduce((sum, tx) => {
+      const txDateObj = new Date(tx.date + 'T00:00:00');
+      if (txDateObj.getFullYear() === currentYear && txDateObj.getMonth() === currentMonth) {
+        if (tx.type === 'expense' && tx.category === 'Credit Card') {
+          return sum + (parseFloat(tx.amount) || 0);
+        }
+      }
+      return sum;
+    }, 0);
+  }, [transactions, currentYear, currentMonth]);
+
+  // Estimated total monthly rewards (calculated on current balances across cards)
+  const estimatedTotalRewards = useMemo(() => {
+    return creditCards.reduce((sum, card) => sum + (card.balance * ((parseFloat(card.cashback) || 0) / 100)), 0);
+  }, [creditCards]);
+
+  // --- 1. Waterfall Chart Data Calculations ---
+  const waterfallData = useMemo(() => {
+    const income = monthlySummary.income;
+    const billsVal = monthlyBillsTotal;
+    const payoffs = monthlyCardPayoffsTotal;
+    
+    // Free cash is income minus bills (auto-charged) and card payoffs
+    const freeCash = Math.max(0, income - billsVal - payoffs);
+
+    // Sum of active goal contributions
+    const investTotal = investmentGoals.reduce((sum, g) => sum + (parseFloat(g.contribution) || 0), 0);
+    const investClamped = Math.min(freeCash, investTotal);
+
+    // Spend budget is what remains
+    const spendVal = Math.max(0, freeCash - investClamped);
+
+    return [
+      { name: '1. Paycheck (Income)', range: [0, income], value: income, color: '#10b981' },
+      { name: '2. Bills (Charged)', range: [Math.max(0, income - billsVal), income], value: billsVal, color: '#ef4444' },
+      { name: '3. CC Payoffs', range: [Math.max(0, income - billsVal - payoffs), Math.max(0, income - billsVal)], value: payoffs, color: '#f43f5e' },
+      { name: '4. Free Cash', range: [0, freeCash], value: freeCash, color: '#a855f7' },
+      { name: '5. Invest Target', range: [Math.max(0, freeCash - investClamped), freeCash], value: investClamped, color: '#14b8a6' },
+      { name: '6. Spend Envelope', range: [0, spendVal], value: spendVal, color: '#3b82f6' }
+    ];
+  }, [monthlySummary, monthlyBillsTotal, monthlyCardPayoffsTotal, investmentGoals]);
+
+  // --- 4. Investment Goals Completion Dates ---
+  const getProjectedDateStr = (goal) => {
+    if (goal.invested >= goal.target) return 'Completed!';
+    if (!goal.contribution || goal.contribution <= 0) return 'N/A';
+    const monthsNeeded = Math.ceil((goal.target - goal.invested) / goal.contribution);
+    const dateObj = new Date();
+    dateObj.setMonth(dateObj.getMonth() + monthsNeeded);
+    return dateObj.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  };
+
+  // --- 5. Spend Envelope Tracker Calculations ---
+  const spendEnvelopeMetrics = useMemo(() => {
+    // Envelope budget = Income - Bills - Investment contributions
+    const monthlyBillsVal = monthlyBillsTotal;
+    const investTotal = investmentGoals.reduce((sum, g) => sum + (parseFloat(g.contribution) || 0), 0);
+    const totalBudget = Math.max(0, monthlySummary.income - monthlyBillsVal - investTotal);
+
+    // Discretionary spent: Expense transactions that are NOT card payoffs AND NOT bills
+    const spentDiscretionary = transactions.reduce((sum, tx) => {
+      const txDateObj = new Date(tx.date + 'T00:00:00');
+      if (txDateObj.getFullYear() === currentYear && txDateObj.getMonth() === currentMonth) {
+        if (tx.type === 'expense' && tx.category !== 'Credit Card' && !tx.description.startsWith('Paid Bill:') && !tx.description.startsWith('Auto-charged Bill:')) {
+          return sum + (parseFloat(tx.amount) || 0);
+        }
+      }
+      return sum;
+    }, 0);
+
+    const remaining = Math.max(0, totalBudget - spentDiscretionary);
+    const percent = totalBudget > 0 ? (remaining / totalBudget) * 100 : 0;
+
+    return {
+      total: totalBudget,
+      spent: spentDiscretionary,
+      remaining,
+      percent
+    };
+  }, [transactions, monthlySummary, monthlyBillsTotal, investmentGoals, currentYear, currentMonth]);
+
+  const daysLeftInMonth = useMemo(() => {
+    const today = new Date();
+    const todayY = today.getFullYear();
+    const todayM = today.getMonth();
+    const todayD = today.getDate();
+
+    if (currentYear < todayY || (currentYear === todayY && currentMonth < todayM)) {
+      return 0; // Past month
+    }
+    const daysInM = new Date(currentYear, currentMonth + 1, 0).getDate();
+
+    if (currentYear === todayY && currentMonth === todayM) {
+      return Math.max(1, daysInM - todayD + 1); // Current month
+    }
+    return daysInM; // Future month
+  }, [currentYear, currentMonth]);
+
+  const dailySpendAllowance = useMemo(() => {
+    if (daysLeftInMonth <= 0) return 0;
+    return spendEnvelopeMetrics.remaining / daysLeftInMonth;
+  }, [spendEnvelopeMetrics.remaining, daysLeftInMonth]);
+
+  // Envelope Color indicator
+  const spendColorClass = useMemo(() => {
+    if (spendEnvelopeMetrics.percent > 50) return 'util-green';
+    if (spendEnvelopeMetrics.percent >= 15) return 'util-amber';
+    return 'util-red';
+  }, [spendEnvelopeMetrics.percent]);
+
+  // --- Credit Card Action Handlers ---
   const handleAddCard = (e) => {
     e.preventDefault();
     const errors = {};
     if (!newCardName.trim()) errors.name = 'Card name is required';
-    
+
     const parsedLimit = parseFloat(newCardLimit);
     if (isNaN(parsedLimit) || parsedLimit <= 0) errors.limit = 'Limit must be positive';
-    
+
     const parsedBalance = parseFloat(newCardBalance || 0);
     if (isNaN(parsedBalance) || parsedBalance < 0) errors.balance = 'Balance cannot be negative';
-    if (parsedBalance > parsedLimit) errors.balance = 'Balance cannot exceed limit';
+
+    const parsedCashback = parseFloat(newCardCashback);
+    if (isNaN(parsedCashback) || parsedCashback < 0) errors.cashback = 'Cashback must be positive';
 
     if (Object.keys(errors).length > 0) {
       setCardErrors(errors);
@@ -283,7 +550,9 @@ function App() {
       name: newCardName.trim(),
       issuer: newCardIssuer,
       limit: parsedLimit,
-      balance: parsedBalance
+      balance: parsedBalance,
+      cashback: parsedCashback,
+      statementClose: newCardCloseDay
     };
 
     setCreditCards((prev) => [...prev, newCard]);
@@ -294,6 +563,8 @@ function App() {
     setNewCardLimit('');
     setNewCardBalance('');
     setNewCardIssuer('Chase');
+    setNewCardCashback('1.5');
+    setNewCardCloseDay('15th');
     setCardErrors({});
     setShowAddCard(false);
   };
@@ -330,11 +601,12 @@ function App() {
     const todayStr = new Date().toISOString().split('T')[0];
     const newTx = {
       id: generateId(),
-      description: `Payment to ${card.name}`,
+      description: `CC Payoff: ${card.name}`,
       amount: amountToPay,
       type: 'expense',
       category: 'Credit Card',
-      date: todayStr
+      date: todayStr,
+      cardId: null // payoff is a debit transfer, not charged to a card
     };
 
     setTransactions((prev) => [newTx, ...prev]);
@@ -345,7 +617,79 @@ function App() {
     setPaymentAmount('');
   };
 
-  // --- Bill Calendar Handlers ---
+  // --- Investment Goal Action Handlers ---
+  const handleAddGoal = (e) => {
+    e.preventDefault();
+    const errors = {};
+    if (!newGoalName.trim()) errors.name = 'Goal name is required';
+
+    const parsedTarget = parseFloat(newGoalTarget);
+    if (isNaN(parsedTarget) || parsedTarget <= 0) errors.target = 'Target must be positive';
+
+    const parsedContrib = parseFloat(newGoalContribution);
+    if (isNaN(parsedContrib) || parsedContrib <= 0) errors.contribution = 'Monthly contribution must be positive';
+
+    const parsedInvested = parseFloat(newGoalInvested || 0);
+    if (isNaN(parsedInvested) || parsedInvested < 0) errors.invested = 'Invested amount cannot be negative';
+
+    if (Object.keys(errors).length > 0) {
+      setGoalErrors(errors);
+      return;
+    }
+
+    const newGoal = {
+      id: generateId(),
+      name: newGoalName.trim(),
+      target: parsedTarget,
+      contribution: parsedContrib,
+      invested: parsedInvested
+    };
+
+    setInvestmentGoals((prev) => [...prev, newGoal]);
+    addToast(`Investment Goal "${newGoal.name}" saved!`);
+
+    // Reset Form
+    setNewGoalName('');
+    setNewGoalTarget('');
+    setNewGoalContribution('');
+    setNewGoalInvested('');
+    setGoalErrors({});
+    setShowAddGoal(false);
+  };
+
+  const handleDeleteGoal = (id) => {
+    const goalToDelete = investmentGoals.find((g) => g.id === id);
+    setInvestmentGoals((prev) => prev.filter((g) => g.id !== id));
+    addToast(`Deleted investment goal "${goalToDelete.name}"`, 'delete');
+  };
+
+  const handleQuickInvest = (goalId) => {
+    const goal = investmentGoals.find((g) => g.id === goalId);
+    if (!goal) return;
+
+    const investAmt = goal.contribution;
+
+    setInvestmentGoals((prev) => 
+      prev.map((g) => (g.id === goalId ? { ...g, invested: Math.min(g.target, g.invested + investAmt) } : g))
+    );
+
+    // Create Expense Transaction
+    const todayStr = new Date().toISOString().split('T')[0];
+    const newTx = {
+      id: generateId(),
+      description: `Invested to ${goal.name}`,
+      amount: investAmt,
+      type: 'expense',
+      category: 'Other',
+      date: todayStr,
+      cardId: null
+    };
+
+    setTransactions((prev) => [newTx, ...prev]);
+    addToast(`Invested $${investAmt.toFixed(2)} to "${goal.name}"!`);
+  };
+
+  // --- Bill Action Handlers ---
   const handleAddBill = (e) => {
     e.preventDefault();
     const errors = {};
@@ -365,7 +709,9 @@ function App() {
       amount: amt,
       category: newBillCategory,
       date: selectedCalendarDay,
-      paid: false
+      paid: false,
+      cardId: newBillCardId || null,
+      recurring: newBillRecurring
     };
 
     setBills((prev) => [...prev, newBill]);
@@ -374,36 +720,56 @@ function App() {
     // Reset Form
     setNewBillName('');
     setNewBillAmount('');
-    setNewBillCategory('Utilities');
     setBillErrors({});
   };
 
-  const handleToggleBillPaid = (billId) => {
+  const handleToggleBillPaid = (billId, instanceDate) => {
     const bill = bills.find((b) => b.id === billId);
     if (!bill) return;
 
-    const newPaidStatus = !bill.paid;
+    const key = `${bill.id}-${instanceDate}`;
+    const isCurrentlyPaid = bill.recurring ? paidBillsLog[key] : bill.paid;
+    const newPaidStatus = !isCurrentlyPaid;
 
-    setBills((prev) => 
-      prev.map((b) => (b.id === billId ? { ...b, paid: newPaidStatus } : b))
-    );
+    // Save paid status
+    if (bill.recurring) {
+      setPaidBillsLog((prev) => ({ ...prev, [key]: newPaidStatus }));
+    } else {
+      setBills((prev) => prev.map((b) => (b.id === billId ? { ...b, paid: newPaidStatus } : b)));
+    }
 
     if (newPaidStatus) {
-      // Create corresponding expense transaction automatically
+      // Charge to Credit Card if assigned
+      if (bill.cardId) {
+        setCreditCards((prev) => 
+          prev.map((c) => (c.id === bill.cardId ? { ...c, balance: c.balance + bill.amount } : c))
+        );
+      }
+
+      // Create expense transaction
       const newTx = {
         id: generateId(),
         description: `Paid Bill: ${bill.name}`,
         amount: bill.amount,
         type: 'expense',
         category: bill.category,
-        date: bill.date
+        date: instanceDate,
+        cardId: bill.cardId || null
       };
+
       setTransactions((prev) => [newTx, ...prev]);
-      addToast(`Bill "${bill.name}" marked paid & logged!`);
+      addToast(`Bill "${bill.name}" marked paid & charged!`);
     } else {
-      // Find and delete the corresponding transaction to keep synced
+      // Refund Card Balance if assigned
+      if (bill.cardId) {
+        setCreditCards((prev) => 
+          prev.map((c) => (c.id === bill.cardId ? { ...c, balance: Math.max(0, c.balance - bill.amount) } : c))
+        );
+      }
+
+      // Delete corresponding transaction
       setTransactions((prev) => 
-        prev.filter((t) => !(t.description === `Paid Bill: ${bill.name}` && t.amount === bill.amount && t.date === bill.date))
+        prev.filter((t) => !(t.description === `Paid Bill: ${bill.name}` && t.amount === bill.amount && t.date === instanceDate))
       );
       addToast(`Bill "${bill.name}" marked unpaid.`);
     }
@@ -442,7 +808,7 @@ function App() {
       list.push({ day: d, isCurrentMonth: true, dateStr });
     }
 
-    // Trailing days from next month (fill up to standard 42 days grid)
+    // Trailing days from next month
     const totalCells = 42;
     const remaining = totalCells - list.length;
     for (let d = 1; d <= remaining; d++) {
@@ -455,47 +821,7 @@ function App() {
     return list;
   }, [currentDate]);
 
-  // --- Last 6 Months Cashflow Bar Chart Data ---
-  const barChartData = useMemo(() => {
-    const months = [];
-    const tempDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-    tempDate.setMonth(tempDate.getMonth() - 5);
-
-    for (let i = 0; i < 6; i++) {
-      months.push({
-        year: tempDate.getFullYear(),
-        month: tempDate.getMonth(),
-        label: tempDate.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
-        key: `${tempDate.getFullYear()}-${String(tempDate.getMonth() + 1).padStart(2, '0')}`
-      });
-      tempDate.setMonth(tempDate.getMonth() + 1);
-    }
-
-    return months.map(({ label, year, month }) => {
-      let income = 0;
-      let expenses = 0;
-
-      transactions.forEach((tx) => {
-        const txDateObj = new Date(tx.date + 'T00:00:00');
-        if (txDateObj.getFullYear() === year && txDateObj.getMonth() === month) {
-          const amt = parseFloat(tx.amount) || 0;
-          if (tx.type === 'income') {
-            income += amt;
-          } else {
-            expenses += amt;
-          }
-        }
-      });
-
-      return {
-        name: label,
-        Income: income,
-        Expenses: expenses
-      };
-    });
-  }, [transactions, currentDate]);
-
-  // --- Transaction Form Handler ---
+  // --- Transaction Log Action Handlers ---
   const handleTypeChange = (newType) => {
     setTxType(newType);
     setTxCategory(newType === 'income' ? 'Income' : 'Food');
@@ -517,19 +843,29 @@ function App() {
       return;
     }
 
+    const assignedCardId = txType === 'expense' && txCardId ? txCardId : null;
+
     const newTx = {
       id: generateId(),
       description: txDesc.trim(),
       amount: parsedAmt,
       type: txType,
       category: txType === 'income' ? 'Income' : txCategory,
-      date: txDate
+      date: txDate,
+      cardId: assignedCardId
     };
+
+    // If transaction is an expense charged to a card, increase that card's balance
+    if (assignedCardId) {
+      setCreditCards((prev) => 
+        prev.map((c) => (c.id === assignedCardId ? { ...c, balance: c.balance + parsedAmt } : c))
+      );
+    }
 
     setTransactions((prev) => [newTx, ...prev]);
     addToast('Transaction recorded successfully!');
 
-    // Reset Form & flash effect
+    // Reset Form
     setTxDesc('');
     setTxAmount('');
     setTxErrors({});
@@ -539,6 +875,15 @@ function App() {
 
   const handleDeleteTransaction = (id) => {
     const txToDelete = transactions.find((t) => t.id === id);
+    if (!txToDelete) return;
+
+    // If the deleted transaction was charged to a card, decrease that card's balance
+    if (txToDelete.type === 'expense' && txToDelete.cardId) {
+      setCreditCards((prev) => 
+        prev.map((c) => (c.id === txToDelete.cardId ? { ...c, balance: Math.max(0, c.balance - txToDelete.amount) } : c))
+      );
+    }
+
     setTransactions((prev) => prev.filter((t) => t.id !== id));
     addToast(`Deleted "${txToDelete.description}"`, 'delete');
   };
@@ -549,6 +894,8 @@ function App() {
       setTransactions(sample.transactions);
       setCreditCards(sample.cards);
       setBills(sample.bills);
+      setInvestmentGoals(sample.goals);
+      setPaidBillsLog({});
       addToast('Reset to original sample dataset.');
     }
   };
@@ -574,7 +921,7 @@ function App() {
 
   return (
     <div className="dashboard-container">
-      {/* Toast Notification HUD */}
+      {/* Toast HUD */}
       <div className="toast-container">
         {toasts.map((t) => (
           <div key={t.id} className={`toast ${t.type === 'delete' ? 'delete' : ''}`}>
@@ -584,7 +931,7 @@ function App() {
         ))}
       </div>
 
-      {/* Top Header / Navigation */}
+      {/* Top Header */}
       <header className="dashboard-header">
         <div className="brand">
           <div className="brand-icon">
@@ -592,11 +939,11 @@ function App() {
           </div>
           <div className="brand-text">
             <h1>CASH FLOW</h1>
-            <p>PERSONAL WEALTH COMPASS</p>
+            <p>ADVANCED WEALTH MATRIX</p>
           </div>
         </div>
         
-        {/* Month Selector navigation */}
+        {/* Month Navigation */}
         <div className="month-navigator">
           <button onClick={handlePrevMonth} className="nav-btn" title="Previous Month">
             <ChevronLeft size={20} />
@@ -609,72 +956,75 @@ function App() {
           </button>
         </div>
 
-        <button onClick={handleResetAllData} className="reset-data-btn" title="Reset all data back to default preset samples">
-          <RefreshCw size={14} />
-          <span>Reset Preset</span>
-        </button>
+        <div className="header-actions">
+          {/* Total Rewards Earned Badge */}
+          <div className="rewards-nav-badge" title="Estimated monthly rewards earned based on card cashbacks">
+            <Sparkles size={14} className="glow-icon" />
+            <span>Rewards Owed: {formatCurrency(estimatedTotalRewards)}</span>
+          </div>
+
+          <button onClick={handleResetAllData} className="reset-data-btn" title="Reset all data back to default preset samples">
+            <RefreshCw size={14} />
+            <span>Reset Preset</span>
+          </button>
+        </div>
       </header>
 
-      {/* 1. Summary Cards (Top Row) */}
-      <section className="metrics-grid">
-        <div className="glass-card metric-card income">
-          <div className="metric-info">
-            <h3>Monthly Income</h3>
-            <div className="metric-value green">
-              {formatCurrency(monthlySummary.income)}
-            </div>
-            <div className="metric-subtext">
-              <TrendingUp size={14} />
-              <span>Earnings for {currentDate.toLocaleDateString('en-US', { month: 'short' })}</span>
-            </div>
-          </div>
-          <div className="metric-icon-wrapper">
-            <ArrowUpRight size={28} />
-          </div>
+      {/* 1. Hero Visualization: Recharts Cashflow Waterfall Chart */}
+      <section className="glass-card waterfall-card">
+        <div className="card-title-bar">
+          <h2>
+            <TrendingUp size={18} style={{ color: 'var(--accent-blue)' }} />
+            Waterfall Capital Flow
+          </h2>
+          <span className="chart-legend-text">INCOME → BILLS → CARD PAYOFFS → FREE CASH → INVEST & SPEND</span>
         </div>
-
-        <div className="glass-card metric-card expense">
-          <div className="metric-info">
-            <h3>Monthly Expenses</h3>
-            <div className="metric-value red">
-              {formatCurrency(monthlySummary.expenses)}
-            </div>
-            <div className="metric-subtext">
-              <TrendingDown size={14} />
-              <span>Debits logged in {currentDate.toLocaleDateString('en-US', { month: 'short' })}</span>
-            </div>
-          </div>
-          <div className="metric-icon-wrapper">
-            <ArrowDownRight size={28} />
-          </div>
-        </div>
-
-        <div className={`glass-card metric-card ${monthlySummary.net >= 0 ? 'cashflow-positive' : 'cashflow-negative'}`}>
-          <div className="metric-info">
-            <h3>Net Cashflow</h3>
-            <div className={`metric-value ${monthlySummary.net >= 0 ? 'green' : 'red'}`}>
-              {formatCurrency(monthlySummary.net)}
-            </div>
-            <div className="metric-subtext">
-              <Wallet size={14} />
-              <span>Liquidity ratio for select period</span>
-            </div>
-          </div>
-          <div className="metric-icon-wrapper">
-            <Wallet size={28} />
-          </div>
+        
+        <div className="chart-container waterfall-chart-container">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart 
+              layout="vertical" 
+              data={waterfallData}
+              margin={{ top: 10, right: 20, left: 10, bottom: 10 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" horizontal={false} />
+              <XAxis 
+                type="number"
+                stroke="var(--text-muted)" 
+                fontSize={11} 
+                tickLine={false} 
+                axisLine={false} 
+                tickFormatter={(val) => `$${val}`}
+              />
+              <YAxis 
+                dataKey="name"
+                type="category"
+                stroke="var(--text-muted)" 
+                fontSize={11} 
+                tickLine={false} 
+                axisLine={false}
+                width={130}
+              />
+              <Tooltip content={<CustomWaterfallTooltip />} cursor={{ fill: 'rgba(255,255,255,0.02)' }} />
+              <Bar dataKey="range" radius={[4, 4, 4, 4]}>
+                {waterfallData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.color} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </section>
 
       {/* Middle Grid Row: Credit Card Tracker (Left) & Bill Calendar (Right) */}
       <section className="charts-grid tracker-layout">
         
-        {/* 2. Credit Card Tracker */}
+        {/* 2. Credit Card Tracker with Routing */}
         <div className="glass-card cc-tracker-card">
           <div className="card-title-bar">
             <h2>
               <CreditCardIcon size={18} style={{ color: 'var(--accent-blue)' }} />
-              Credit Card Tracker
+              Cards & Routing
             </h2>
             <button onClick={() => setShowAddCard(true)} className="add-btn">
               <Plus size={14} /> Add Card
@@ -691,6 +1041,7 @@ function App() {
 
                 const isPaidOff = card.balance === 0;
                 const issuerInfo = getIssuerColor(card.issuer);
+                const cardRewards = card.balance * ((parseFloat(card.cashback) || 0) / 100);
 
                 return (
                   <div key={card.id} className="cc-card">
@@ -711,6 +1062,11 @@ function App() {
                       <button onClick={() => handleDeleteCard(card.id)} className="cc-delete-btn" title="Delete credit card">
                         <Trash2 size={13} />
                       </button>
+                    </div>
+
+                    <div className="cc-details-row">
+                      <span className="cc-sub-lbl">Statement Close: <strong>{card.statementClose}</strong></span>
+                      <span className="cc-sub-lbl">Cashback: <strong>{card.cashback}%</strong></span>
                     </div>
 
                     <div className="cc-balances">
@@ -743,8 +1099,11 @@ function App() {
                             {utilRatio.toFixed(0)}% Utilization
                           </span>
                         )}
+                        <span className="cc-rewards-est" title="Cashback rewards earned on balance">
+                          Est. Reward: <strong>{formatCurrency(cardRewards)}</strong>
+                        </span>
                         <button onClick={() => setPayingCardId(card.id)} className="pay-card-btn">
-                          Log Payment
+                          Make Payment
                         </button>
                       </div>
                     </div>
@@ -753,13 +1112,13 @@ function App() {
               })
             ) : (
               <div className="empty-state">
-                <p>No cards active. Click Add Card to track balances.</p>
+                <p>No credit cards configured.</p>
               </div>
             )}
           </div>
         </div>
 
-        {/* 3. Bill Calendar */}
+        {/* 3. Bill Calendar with Card Assignment */}
         <div className="glass-card bill-calendar-card">
           <div className="card-title-bar">
             <h2>
@@ -767,12 +1126,12 @@ function App() {
               Bill Calendar
             </h2>
             <div className="calendar-indicator-row">
-              <div className="indicator-pill unpaid">Upcoming</div>
+              <div className="indicator-pill unpaid">Unpaid</div>
               <div className="indicator-pill paid">Paid</div>
             </div>
           </div>
 
-          {/* Calendar Weekday headers */}
+          {/* Weekday headers */}
           <div className="calendar-week-headers">
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
               <div key={d} className="calendar-header-cell">{d}</div>
@@ -782,7 +1141,7 @@ function App() {
           {/* Days Grid */}
           <div className="calendar-days-grid">
             {calendarDays.map((cell, idx) => {
-              const dayBills = bills.filter((b) => b.date === cell.dateStr);
+              const dayBills = monthlyBills.filter((b) => b.date === cell.dateStr);
               const hasBills = dayBills.length > 0;
               const allPaid = hasBills && dayBills.every((b) => b.paid);
               
@@ -802,16 +1161,20 @@ function App() {
                     <div className="bill-indicator-dot"></div>
                   )}
 
-                  {/* Tooltip on Hover */}
+                  {/* Calendar Hover Tooltip */}
                   {hasBills && (
                     <div className="calendar-tooltip">
-                      <div className="tooltip-title">Bills for {cell.dateStr}:</div>
+                      <div className="tooltip-title">Bills ({cell.dateStr}):</div>
                       <ul className="tooltip-list">
-                        {dayBills.map((b) => (
-                          <li key={b.id} className={b.paid ? 'paid' : 'unpaid'}>
-                            {b.name} ({formatCurrency(b.amount)}) - {b.paid ? 'Paid' : 'Due'}
-                          </li>
-                        ))}
+                        {dayBills.map((b) => {
+                          const card = creditCards.find((c) => c.id === b.cardId);
+                          return (
+                            <li key={b.id} className={b.paid ? 'paid' : 'unpaid'}>
+                              {b.name} ({formatCurrency(b.amount)})
+                              <span className="tooltip-card-route"> → {card ? card.name : 'Cash'}</span>
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                   )}
@@ -822,48 +1185,142 @@ function App() {
         </div>
       </section>
 
-      {/* 4. 6-Month Cashflow Chart Section */}
-      <section className="glass-card cashflow-chart-section">
-        <div className="card-title-bar">
-          <h2>
-            <TrendingUp size={18} style={{ color: 'var(--accent-blue)' }} />
-            6-Month Cashflow Comparison
-          </h2>
-          <span className="chart-legend-text">INFLOW VS OUTFLOW SIDE BY SIDE</span>
-        </div>
+      {/* Row 3: Investment Goal Tracker (Left) & Spend Envelopes (Right) */}
+      <section className="charts-grid tracker-layout">
         
-        <div className="chart-container">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart 
-              data={barChartData} 
-              margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
-              barGap={5}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
-              <XAxis 
-                dataKey="name" 
-                stroke="var(--text-muted)" 
-                fontSize={11} 
-                tickLine={false} 
-                axisLine={false} 
-              />
-              <YAxis 
-                stroke="var(--text-muted)" 
-                fontSize={11} 
-                tickLine={false} 
-                axisLine={false} 
-                tickFormatter={(val) => `$${val}`}
-              />
-              <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.02)' }} />
-              <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
-              <Bar dataKey="Income" name="Income" fill="#10b981" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="Expenses" name="Expenses" fill="#ef4444" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+        {/* 4. Investment Goal Tracker */}
+        <div className="glass-card investment-tracker-card">
+          <div className="card-title-bar">
+            <h2>
+              <Target size={18} style={{ color: 'var(--accent-blue)' }} />
+              Investment Goals
+            </h2>
+            <button onClick={() => setShowAddGoal(true)} className="add-btn">
+              <Plus size={14} /> Add Goal
+            </button>
+          </div>
+
+          <div className="goals-grid">
+            {investmentGoals.length > 0 ? (
+              investmentGoals.map((goal) => {
+                const progressRatio = goal.target > 0 ? (goal.invested / goal.target) * 100 : 0;
+                const projDate = getProjectedDateStr(goal);
+
+                return (
+                  <div key={goal.id} className="goal-card teal-theme">
+                    <div className="goal-card-header">
+                      <div className="goal-title-wrap">
+                        <Target size={18} className="goal-icon" />
+                        <span className="goal-name">{goal.name}</span>
+                      </div>
+                      <button onClick={() => handleDeleteGoal(goal.id)} className="goal-delete-btn" title="Delete investment goal">
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+
+                    <div className="goal-metrics">
+                      <div className="goal-metric">
+                        <span className="goal-lbl">Target</span>
+                        <span className="goal-val">{formatCurrency(goal.target)}</span>
+                      </div>
+                      <div className="goal-metric text-right">
+                        <span className="goal-lbl">Invested</span>
+                        <span className="goal-val text-teal">{formatCurrency(goal.invested)}</span>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="goal-progress-wrap">
+                      <div className="goal-progress-bar">
+                        <div 
+                          className="goal-progress-fill"
+                          style={{ width: `${Math.min(100, progressRatio)}%` }}
+                        ></div>
+                      </div>
+                      
+                      <div className="goal-footer">
+                        <span>{progressRatio.toFixed(0)}% Completed</span>
+                        <span>Monthly: <strong>{formatCurrency(goal.contribution)}</strong></span>
+                      </div>
+                    </div>
+
+                    <div className="goal-projection-box">
+                      <div className="proj-detail">
+                        <span>Projected Date:</span>
+                        <strong className="text-teal">{projDate}</strong>
+                      </div>
+                      <button onClick={() => handleQuickInvest(goal.id)} className="quick-invest-btn">
+                        Invest {formatCurrency(goal.contribution)}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="empty-state">
+                <p>No investment goals set. Click Add Goal to start saving.</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 5. Spend Budget Envelope */}
+        <div className="glass-card spend-envelope-card">
+          <div className="card-title-bar">
+            <h2>
+              <Bookmark size={18} style={{ color: 'var(--accent-blue)' }} />
+              Spend Envelope
+            </h2>
+          </div>
+
+          <div className="envelope-display-container">
+            <div className="envelope-progress-section">
+              <div className="envelope-header-row">
+                <span className="env-title">Envelope Budget</span>
+                <span className={`env-status-percent ${spendColorClass}`}>
+                  {spendEnvelopeMetrics.percent.toFixed(0)}% Left
+                </span>
+              </div>
+
+              {/* Progress bar */}
+              <div className="cc-util-bar envelope-bar-wrap">
+                <div 
+                  className={`cc-util-fill ${spendColorClass}`}
+                  style={{ width: `${Math.min(100, spendEnvelopeMetrics.percent)}%` }}
+                ></div>
+              </div>
+
+              <div className="envelope-amounts-row">
+                <div>
+                  <span className="env-sub-label">Discretionary Remaining</span>
+                  <p className="env-big-amount">{formatCurrency(spendEnvelopeMetrics.remaining)}</p>
+                </div>
+                <div className="text-right">
+                  <span className="env-sub-label">Total Allocated</span>
+                  <p className="env-small-amount">{formatCurrency(spendEnvelopeMetrics.total)}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="envelope-details-box">
+              <div className="envelope-detail-column">
+                <span className="env-card-lbl">Days Remaining</span>
+                <p className="env-card-val">{daysLeftInMonth} Days</p>
+              </div>
+              <div className="envelope-detail-column text-right">
+                <span className="env-card-lbl">Daily Allowance</span>
+                <p className="env-card-val text-purple">{formatCurrency(dailySpendAllowance)}/day</p>
+              </div>
+            </div>
+            
+            <p className="envelope-desc-footer">
+              Envelope budget subtracts monthly bills and investment contributions from your monthly income. As you log discretionary purchases, this budget shrinks.
+            </p>
+          </div>
         </div>
       </section>
 
-      {/* 5. Bottom Workspace Section: Log Transaction (Left) & Transaction Log List (Right) */}
+      {/* 6. Transaction Log Form & Log List */}
       <section className="workspace-grid">
         
         {/* Transaction Input Form */}
@@ -968,6 +1425,27 @@ function App() {
               </div>
             )}
 
+            {/* Card routing assignment (For expenses) */}
+            {txType === 'expense' && (
+              <div className="form-group">
+                <label htmlFor="tx-card-id">Charge to Card</label>
+                <div className="input-container">
+                  <CreditCardIcon className="input-icon" size={16} />
+                  <select
+                    id="tx-card-id"
+                    className="form-select"
+                    value={txCardId}
+                    onChange={(e) => setTxCardId(e.target.value)}
+                  >
+                    <option value="">None / Paid in Cash</option>
+                    {creditCards.map((card) => (
+                      <option key={card.id} value={card.id}>{card.name} (Close: {card.statementClose})</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
             {/* Date */}
             <div className="form-group">
               <label htmlFor="tx-date">Date</label>
@@ -991,7 +1469,7 @@ function App() {
           </form>
         </div>
 
-        {/* Transaction History Log list view */}
+        {/* Transaction History Log */}
         <div className="glass-card scrollable-log-card" style={{ display: 'flex', flexDirection: 'column' }}>
           <div className="card-title-bar">
             <h2>
@@ -1038,54 +1516,65 @@ function App() {
           <div className="transaction-list-container">
             {filteredTransactions.length > 0 ? (
               <div className="transaction-list">
-                {filteredTransactions.map((tx) => (
-                  <div key={tx.id} className="transaction-item">
-                    <div className="item-left">
-                      <div 
-                        className="category-icon-indicator"
-                        style={{
-                          backgroundColor: `${CATEGORY_COLORS[tx.category]}1a`,
-                          color: CATEGORY_COLORS[tx.category],
-                          border: `1px solid ${CATEGORY_COLORS[tx.category]}26`,
-                          fontSize: '1.2rem'
-                        }}
-                      >
-                        {CATEGORY_EMOJIS[tx.category] || '📦'}
-                      </div>
-                      
-                      <div className="item-details">
-                        <h4>{tx.description}</h4>
-                        <div className="item-meta">
-                          <span>{tx.date}</span>
-                          <span>•</span>
-                          <span 
-                            className="badge"
-                            style={{
-                              backgroundColor: `${CATEGORY_COLORS[tx.category]}22`,
-                              color: CATEGORY_COLORS[tx.category],
-                              border: `1px solid ${CATEGORY_COLORS[tx.category]}33`
-                            }}
-                          >
-                            {tx.category}
-                          </span>
+                {filteredTransactions.map((tx) => {
+                  const card = creditCards.find((c) => c.id === tx.cardId);
+                  return (
+                    <div key={tx.id} className="transaction-item">
+                      <div className="item-left">
+                        <div 
+                          className="category-icon-indicator"
+                          style={{
+                            backgroundColor: `${CATEGORY_COLORS[tx.category]}1a`,
+                            color: CATEGORY_COLORS[tx.category],
+                            border: `1px solid ${CATEGORY_COLORS[tx.category]}26`,
+                            fontSize: '1.2rem'
+                          }}
+                        >
+                          {CATEGORY_EMOJIS[tx.category] || '📦'}
+                        </div>
+                        
+                        <div className="item-details">
+                          <h4>{tx.description}</h4>
+                          <div className="item-meta">
+                            <span>{tx.date}</span>
+                            <span>•</span>
+                            <span 
+                              className="badge"
+                              style={{
+                                backgroundColor: `${CATEGORY_COLORS[tx.category]}22`,
+                                color: CATEGORY_COLORS[tx.category],
+                                border: `1px solid ${CATEGORY_COLORS[tx.category]}33`
+                              }}
+                            >
+                              {tx.category}
+                            </span>
+                            {card && (
+                              <>
+                                <span>•</span>
+                                <span className="transaction-card-badge" title="Charged to credit card">
+                                  💳 {card.name}
+                                </span>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="item-right">
-                      <span className={`item-amount ${tx.type}`}>
-                        {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount)}
-                      </span>
-                      <button 
-                        className="delete-btn" 
-                        onClick={() => handleDeleteTransaction(tx.id)}
-                        title="Delete record"
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                      <div className="item-right">
+                        <span className={`item-amount ${tx.type}`}>
+                          {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount)}
+                        </span>
+                        <button 
+                          className="delete-btn" 
+                          onClick={() => handleDeleteTransaction(tx.id)}
+                          title="Delete record"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="empty-state">
@@ -1177,6 +1666,32 @@ function App() {
                 {cardErrors.balance && <span className="error-text">{cardErrors.balance}</span>}
               </div>
 
+              <div className="form-group">
+                <label>Cashback Rate (%)</label>
+                <input 
+                  type="number" 
+                  step="0.1"
+                  className={`form-input ${cardErrors.cashback ? 'error' : ''}`}
+                  placeholder="e.g. 1.5" 
+                  value={newCardCashback}
+                  onChange={(e) => setNewCardCashback(e.target.value)}
+                  style={{ paddingLeft: '16px' }}
+                />
+                {cardErrors.cashback && <span className="error-text">{cardErrors.cashback}</span>}
+              </div>
+
+              <div className="form-group">
+                <label>Statement Close Day</label>
+                <input 
+                  type="text" 
+                  className="form-input"
+                  placeholder="e.g. 15th" 
+                  value={newCardCloseDay}
+                  onChange={(e) => setNewCardCloseDay(e.target.value)}
+                  style={{ paddingLeft: '16px' }}
+                />
+              </div>
+
               <button type="submit" className="submit-btn" style={{ marginTop: '12px' }}>
                 <Plus size={16} /> Save Credit Card
               </button>
@@ -1185,12 +1700,84 @@ function App() {
         </div>
       )}
 
-      {/* --- LOG CARD PAYMENT MODAL DIALOG --- */}
+      {/* --- ADD GOAL MODAL DIALOG --- */}
+      {showAddGoal && (
+        <div className="modal-overlay">
+          <div className="modal-box glass-card">
+            <div className="modal-header">
+              <h3>Add Investment Goal</h3>
+              <button onClick={() => setShowAddGoal(false)} className="close-btn">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <form onSubmit={handleAddGoal} className="modal-form">
+              <div className="form-group">
+                <label>Goal Name</label>
+                <input 
+                  type="text" 
+                  className={`form-input ${goalErrors.name ? 'error' : ''}`}
+                  placeholder="e.g. Emergency Fund" 
+                  value={newGoalName}
+                  onChange={(e) => setNewGoalName(e.target.value)}
+                  style={{ paddingLeft: '16px' }}
+                />
+                {goalErrors.name && <span className="error-text">{goalErrors.name}</span>}
+              </div>
+
+              <div className="form-group">
+                <label>Target Amount ($)</label>
+                <input 
+                  type="number" 
+                  className={`form-input ${goalErrors.target ? 'error' : ''}`}
+                  placeholder="e.g. 10000" 
+                  value={newGoalTarget}
+                  onChange={(e) => setNewGoalTarget(e.target.value)}
+                  style={{ paddingLeft: '16px' }}
+                />
+                {goalErrors.target && <span className="error-text">{goalErrors.target}</span>}
+              </div>
+
+              <div className="form-group">
+                <label>Monthly Contribution ($)</label>
+                <input 
+                  type="number" 
+                  className={`form-input ${goalErrors.contribution ? 'error' : ''}`}
+                  placeholder="e.g. 400" 
+                  value={newGoalContribution}
+                  onChange={(e) => setNewGoalContribution(e.target.value)}
+                  style={{ paddingLeft: '16px' }}
+                />
+                {goalErrors.contribution && <span className="error-text">{goalErrors.contribution}</span>}
+              </div>
+
+              <div className="form-group">
+                <label>Amount Already Saved ($)</label>
+                <input 
+                  type="number" 
+                  className={`form-input ${goalErrors.invested ? 'error' : ''}`}
+                  placeholder="e.g. 0" 
+                  value={newGoalInvested}
+                  onChange={(e) => setNewGoalInvested(e.target.value)}
+                  style={{ paddingLeft: '16px' }}
+                />
+                {goalErrors.invested && <span className="error-text">{goalErrors.invested}</span>}
+              </div>
+
+              <button type="submit" className="submit-btn" style={{ marginTop: '12px' }}>
+                <Plus size={16} /> Save Goal
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- MAKE PAYMENT MODAL DIALOG --- */}
       {payingCardId && (
         <div className="modal-overlay">
           <div className="modal-box glass-card">
             <div className="modal-header">
-              <h3>Log Card Payment</h3>
+              <h3>Make Card Payment</h3>
               <button onClick={() => setPayingCardId(null)} className="close-btn">
                 <X size={20} />
               </button>
@@ -1223,7 +1810,7 @@ function App() {
         </div>
       )}
 
-      {/* --- CALENDAR DAY DETAIL & ADD BILL MODAL DIALOG --- */}
+      {/* --- CALENDAR DAY DETAILS DIALOG --- */}
       {selectedCalendarDay && (
         <div className="modal-overlay">
           <div className="modal-box glass-card calendar-modal">
@@ -1235,44 +1822,50 @@ function App() {
             </div>
             
             <div className="calendar-modal-split">
-              {/* Left pane: Existing Bills list */}
+              {/* Left pane: Scheduled bills */}
               <div className="modal-pane-left">
                 <h4>Bills Scheduled</h4>
                 <div className="modal-bills-list">
-                  {bills.filter((b) => b.date === selectedCalendarDay).length > 0 ? (
-                    bills.filter((b) => b.date === selectedCalendarDay).map((bill) => (
-                      <div key={bill.id} className={`modal-bill-item ${bill.paid ? 'paid' : ''}`}>
-                        <div className="bill-item-details">
-                          <span className="bill-name-lbl">{bill.name}</span>
-                          <span className="bill-amt-lbl">{formatCurrency(bill.amount)}</span>
+                  {monthlyBills.filter((b) => b.date === selectedCalendarDay).length > 0 ? (
+                    monthlyBills.filter((b) => b.date === selectedCalendarDay).map((bill) => {
+                      const card = creditCards.find((c) => c.id === bill.cardId);
+                      return (
+                        <div key={bill.id} className={`modal-bill-item ${bill.paid ? 'paid' : ''}`}>
+                          <div className="bill-item-details">
+                            <span className="bill-name-lbl">{bill.name}</span>
+                            <span className="bill-amt-lbl">
+                              {formatCurrency(bill.amount)} routed to <strong>{card ? card.name : 'Cash'}</strong>
+                              {bill.recurring && <span className="bill-recur-badge"> (Recur)</span>}
+                            </span>
+                          </div>
+                          <div className="bill-actions">
+                            <button 
+                              onClick={() => handleToggleBillPaid(bill.id, bill.date)} 
+                              className={`bill-toggle-paid-btn ${bill.paid ? 'is-paid' : 'is-unpaid'}`}
+                              title={bill.paid ? 'Mark unpaid' : 'Mark paid & charge card'}
+                            >
+                              {bill.paid ? <Check size={14} /> : 'Pay'}
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteBill(bill.id)} 
+                              className="bill-item-delete-btn"
+                              title="Delete bill"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
                         </div>
-                        <div className="bill-actions">
-                          <button 
-                            onClick={() => handleToggleBillPaid(bill.id)} 
-                            className={`bill-toggle-paid-btn ${bill.paid ? 'is-paid' : 'is-unpaid'}`}
-                            title={bill.paid ? 'Mark unpaid' : 'Mark paid & log transaction'}
-                          >
-                            {bill.paid ? <Check size={14} /> : 'Pay'}
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteBill(bill.id)} 
-                            className="bill-item-delete-btn"
-                            title="Delete bill"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      </div>
-                    ))
+                      );
+                    })
                   ) : (
                     <div className="empty-modal-state">
-                      <p>No bills set for this day.</p>
+                      <p>No bills scheduled on this day.</p>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Right pane: Add Bill form */}
+              {/* Right pane: Add bill */}
               <div className="modal-pane-right">
                 <h4>Add Bill for Day</h4>
                 <form onSubmit={handleAddBill} className="modal-form">
@@ -1281,7 +1874,7 @@ function App() {
                     <input 
                       type="text" 
                       className={`form-input ${billErrors.name ? 'error' : ''}`}
-                      placeholder="e.g. Electric Bill" 
+                      placeholder="e.g. Internet Bill" 
                       value={newBillName}
                       onChange={(e) => setNewBillName(e.target.value)}
                       style={{ paddingLeft: '16px' }}
@@ -1315,6 +1908,33 @@ function App() {
                         <option key={cat} value={cat}>{CATEGORY_EMOJIS[cat]} {cat}</option>
                       ))}
                     </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Route to Card</label>
+                    <select 
+                      className="form-select"
+                      value={newBillCardId}
+                      onChange={(e) => setNewBillCardId(e.target.value)}
+                      style={{ paddingLeft: '16px' }}
+                    >
+                      <option value="">None / Cash</option>
+                      {creditCards.map((card) => (
+                        <option key={card.id} value={card.id}>{card.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-group toggle-row" style={{ flexDirection: 'row', alignItems: 'center', gap: '8px' }}>
+                    <input 
+                      type="checkbox" 
+                      id="recur-bill"
+                      checked={newBillRecurring}
+                      onChange={(e) => setNewBillRecurring(e.target.checked)}
+                    />
+                    <label htmlFor="recur-bill" style={{ textTransform: 'none', letterSpacing: 'normal', cursor: 'pointer', marginBottom: 0 }}>
+                      Recurring Monthly Bill
+                    </label>
                   </div>
 
                   <button type="submit" className="submit-btn" style={{ marginTop: '8px' }}>
