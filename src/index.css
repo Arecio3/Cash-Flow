@@ -2236,3 +2236,510 @@ body {
   }
 }
 
+/* Custom Toast Notifications */
+.toast-portal-container {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 10000;
+  width: 100%;
+  max-width: 400px;
+  padding: 0 16px;
+  pointer-events: none;
+}
+
+.toast-message-item {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3), var(--shadow-glow);
+  animation: slideUpFade 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: auto;
+  position: relative;
+  overflow: hidden;
+}
+
+.toast-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.toast-icon-svg {
+  flex-shrink: 0;
+}
+
+.toast-text {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.toast-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: 4px;
+  transition: all var(--transition-fast);
+}
+
+.toast-close-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.toast-message-item.success {
+  border-left: 4px solid var(--income-green);
+}
+.toast-message-item.success .toast-icon-svg {
+  color: var(--income-green);
+}
+
+.toast-message-item.error {
+  border-left: 4px solid var(--expense-red);
+}
+.toast-message-item.error .toast-icon-svg {
+  color: var(--expense-red);
+}
+
+.toast-message-item.warning {
+  border-left: 4px solid #f59e0b;
+}
+.toast-message-item.warning .toast-icon-svg {
+  color: #f59e0b;
+}
+
+.toast-message-item.info {
+  border-left: 4px solid var(--accent-blue);
+}
+.toast-message-item.info .toast-icon-svg {
+  color: var(--accent-blue);
+}
+
+.toast-progress-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.toast-progress-bar-fill {
+  height: 100%;
+  width: 100%;
+  background: currentColor;
+  animation: toastProgress 4s linear forwards;
+  transform-origin: left;
+}
+
+.toast-message-item.success .toast-progress-bar-fill {
+  color: var(--income-green);
+}
+.toast-message-item.error .toast-progress-bar-fill {
+  color: var(--expense-red);
+}
+.toast-message-item.warning .toast-progress-bar-fill {
+  color: #f59e0b;
+}
+.toast-message-item.info .toast-progress-bar-fill {
+  color: var(--accent-blue);
+}
+
+@keyframes slideUpFade {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes toastProgress {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* Offline Banner */
+.offline-banner-wrap {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  padding: 8px 16px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10002;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  animation: slideDownFade 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.offline-banner-wrap.offline {
+  background: linear-gradient(to right, #f59e0b, #d97706);
+  color: #000000;
+}
+
+.offline-banner-wrap.online {
+  background: linear-gradient(to right, var(--income-green), #059669);
+  color: #ffffff;
+}
+
+.offline-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.banner-icon-svg {
+  flex-shrink: 0;
+}
+
+@keyframes slideDownFade {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Install Prompt Banner */
+.install-prompt-overlay {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 460px;
+  z-index: 10001;
+  padding: 0 16px;
+  animation: slideUpFade 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.install-prompt-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background: var(--bg-card);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), var(--shadow-glow);
+  border-radius: 16px;
+}
+
+.install-prompt-body {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.install-prompt-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(20, 184, 166, 0.1);
+  border: 1px solid rgba(20, 184, 166, 0.2);
+  flex-shrink: 0;
+}
+
+.install-prompt-text h4 {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.install-prompt-text p {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+
+.ios-prompt-desc {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.inline-icon {
+  color: var(--accent-blue);
+  display: inline;
+  vertical-align: middle;
+}
+
+.install-prompt-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.install-btn {
+  background: linear-gradient(135deg, var(--income-green) 0%, #059669 100%);
+  color: white;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all var(--transition-fast);
+  box-shadow: 0 4px 10px rgba(16, 185, 129, 0.2);
+}
+
+.install-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.1);
+}
+
+.install-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: 50%;
+  transition: all var(--transition-fast);
+  width: 32px;
+  height: 32px;
+}
+
+.install-close-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Mobile Bottom Navigation Bar (Hidden by Default) */
+.mobile-bottom-nav {
+  display: none;
+}
+
+/* Mobile sheet close button (Hidden by Default) */
+.mobile-sheet-close-btn {
+  display: none;
+}
+
+/* Mobile Responsive Styling Overrides */
+@media (max-width: 768px) {
+  /* Prevent horizontal scroll */
+  body, html {
+    overflow-x: hidden;
+    position: relative;
+    width: 100%;
+  }
+
+  .dashboard-container {
+    padding: 12px 12px 90px 12px !important;
+    overflow-x: hidden;
+    gap: 16px;
+  }
+
+  /* Bottom nav layout shifts */
+  .dashboard-header .month-navigator,
+  .dashboard-header .header-actions {
+    display: none !important;
+  }
+  
+  .dashboard-header {
+    justify-content: center !important;
+    padding: 12px !important;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .mobile-bottom-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 64px;
+    background: rgba(15, 20, 32, 0.97);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid var(--border-color);
+    z-index: 998;
+    justify-content: space-around;
+    align-items: center;
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.5);
+  }
+
+  .mobile-nav-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  .mobile-nav-btn:active {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+  }
+
+  .mobile-add-btn {
+    background: linear-gradient(135deg, var(--accent-blue) 0%, #2563eb 100%) !important;
+    color: white !important;
+    box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4);
+    transform: translateY(-12px);
+    width: 52px;
+    height: 52px;
+    border: 3px solid var(--bg-primary);
+  }
+
+  .mobile-add-btn:active {
+    transform: translateY(-10px) scale(0.95);
+  }
+
+  /* Toast shifts to avoid bottom tab bar */
+  .toast-portal-container {
+    bottom: 80px !important;
+  }
+
+  /* Install Prompt Banner shifts to avoid bottom tab bar */
+  .install-prompt-overlay {
+    bottom: 80px !important;
+    max-width: 100%;
+  }
+
+  /* Grid layouts collapse to single column */
+  .metrics-grid,
+  .charts-grid,
+  .workspace-grid,
+  .tracker-layout,
+  .goals-grid {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+  }
+
+  /* Waterfall chart horizontal scroll check */
+  .waterfall-chart-container {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    display: block;
+    width: 100%;
+  }
+  .waterfall-chart-container > div {
+    min-width: 600px;
+  }
+
+  /* Touch Target minimums (44x44px) */
+  .calendar-day-cell {
+    min-height: 48px !important;
+    font-size: 0.85rem !important;
+  }
+
+  button, 
+  .reset-data-btn, 
+  .sign-out-btn,
+  .submit-btn,
+  .delete-btn,
+  .bill-toggle-paid-btn,
+  .bill-item-delete-btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Transaction Form Sheet on Mobile */
+  .transaction-form-card {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    max-height: 85vh;
+    background: var(--bg-secondary) !important;
+    border-top: 1px solid var(--border-color);
+    border-left: none !important;
+    border-right: none !important;
+    border-bottom: none !important;
+    border-radius: 24px 24px 0 0 !important;
+    z-index: 1001;
+    transform: translateY(100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    padding: 24px 24px 40px 24px !important;
+    overflow-y: auto;
+    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.6);
+  }
+
+  .transaction-form-card.mobile-active {
+    transform: translateY(0);
+  }
+
+  .mobile-sheet-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 1000;
+    animation: fadeIn var(--transition-fast);
+  }
+
+  .mobile-sheet-close-btn {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    cursor: pointer;
+  }
+
+  .mobile-sheet-close-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.1);
+  }
+}
+

@@ -41,6 +41,9 @@ import { useCreditCards } from './hooks/useCreditCards';
 import { useBills } from './hooks/useBills';
 import { useInvestmentGoals } from './hooks/useInvestmentGoals';
 import { hasLocalData, migrateLocalData } from './lib/migrate';
+import { useToast } from './hooks/useToast';
+import { OfflineBanner } from './components/OfflineBanner';
+import { InstallPrompt } from './components/InstallPrompt';
 
 // Local storage key for persistent logs (e.g. recurring bill paid statuses)
 const storage = {
@@ -105,10 +108,6 @@ const formatCurrency = (amount) => {
     style: 'currency',
     currency: 'USD'
   }).format(amount);
-};
-
-const generateId = () => {
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 };
 
 const getSampleData = () => {
@@ -178,9 +177,10 @@ function App() {
   const { investmentGoals, update: updateGoal, add: addGoal, remove: removeGoal, loading: goalsLoading } = useInvestmentGoals(user?.id);
 
   // --- App View States ---
+  const { showToast } = useToast();
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [toasts, setToasts] = useState([]);
   const [showMigrationBanner, setShowMigrationBanner] = useState(false);
+  const [showMobileTxForm, setShowMobileTxForm] = useState(false);
 
   // --- Modals / Interaction States ---
   const [selectedCalendarDay, setSelectedCalendarDay] = useState(null);
@@ -258,11 +258,7 @@ function App() {
 
   // --- Toast Manager Helper ---
   const addToast = (message, toastType = 'success') => {
-    const id = generateId();
-    setToasts((prev) => [...prev, { id, message, type: toastType }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 3500);
+    showToast(message, toastType === 'delete' ? 'error' : toastType);
   };
 
   // --- Auto-Charge Pending Bills on Load (Supabase integration) ---
@@ -946,6 +942,7 @@ function App() {
       setTxErrors({});
       setSuccessFlash(true);
       setTimeout(() => setSuccessFlash(false), 800);
+      setShowMobileTxForm(false);
     } catch (err) {
       console.error('Failed to save transaction:', err);
       addToast('Failed to save transaction.', 'delete');
@@ -1064,15 +1061,9 @@ function App() {
 
   return (
     <div className="dashboard-container">
-      {/* Toast Notification */}
-      <div className="toast-container">
-        {toasts.map((t) => (
-          <div key={t.id} className={`toast ${t.type === 'delete' ? 'delete' : ''}`}>
-            {t.type === 'delete' ? <Trash2 size={16} /> : <Sparkles size={16} />}
-            <span>{t.message}</span>
-          </div>
-        ))}
-      </div>
+      {/* Offline Banner & PWA Install Sheet */}
+      <OfflineBanner />
+      <InstallPrompt />
 
       {/* Migration Banner */}
       {showMigrationBanner && (
@@ -1509,12 +1500,20 @@ function App() {
       <section className="workspace-grid">
         
         {/* Transaction Input Form */}
-        <div className={`glass-card ${successFlash ? 'form-success-flash' : ''}`}>
+        <div className={`glass-card transaction-form-card ${successFlash ? 'form-success-flash' : ''} ${showMobileTxForm ? 'mobile-active' : ''}`}>
           <div className="card-title-bar">
             <h2>
               <Plus size={18} style={{ color: 'var(--accent-blue)' }} />
               Log Transaction
             </h2>
+            <button 
+              type="button" 
+              className="mobile-sheet-close-btn" 
+              onClick={() => setShowMobileTxForm(false)}
+              aria-label="Close form sheet"
+            >
+              <X size={18} />
+            </button>
           </div>
 
           <form onSubmit={handleSubmitTransaction} className="transaction-form">
@@ -2131,6 +2130,35 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* Mobile sheet backdrop and bottom menu overlay */}
+      {showMobileTxForm && (
+        <div className="mobile-sheet-backdrop" onClick={() => setShowMobileTxForm(false)} />
+      )}
+
+      {/* Mobile Bottom Navigation */}
+      <div className="mobile-bottom-nav">
+        <button onClick={handlePrevMonth} className="mobile-nav-btn" title="Previous Month" type="button">
+          <ChevronLeft size={20} />
+        </button>
+        <button 
+          onClick={() => setShowMobileTxForm(true)} 
+          className="mobile-nav-btn mobile-add-btn" 
+          title="Log Transaction"
+          type="button"
+        >
+          <Plus size={24} />
+        </button>
+        <button onClick={handleNextMonth} className="mobile-nav-btn" title="Next Month" type="button">
+          <ChevronRight size={20} />
+        </button>
+        <button onClick={handleResetAllData} className="mobile-nav-btn" title="Reset Presets" type="button">
+          <RefreshCw size={18} />
+        </button>
+        <button onClick={signOut} className="mobile-nav-btn" title="Sign Out" type="button">
+          <LogOut size={18} />
+        </button>
+      </div>
 
     </div>
   );

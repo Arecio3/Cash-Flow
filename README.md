@@ -63,3 +63,43 @@ If you deploy this application to Vercel, make sure to add your production envir
 * **Custom Hooks**: Exposes optimistic states for transactions, bills, credit cards, and investment goals via custom hooks mapping Supabase database structures (`src/hooks/useTransactions.js`, etc.).
 * **Migration logic**: Generates unique UUIDs and updates parent-child foreign key linkages during local storage imports (`src/lib/migrate.js`).
 * **Design system**: Fully dark-themed custom CSS variables, glassmorphic card overlays, premium custom indicators, and dynamic micro-animations defined in `src/index.css`.
+
+---
+
+## 📱 Progressive Web App (PWA) Support
+
+This application is fully configured as a PWA, enabling offline loading, asset caching, and home-screen installation.
+
+### Local PWA Testing
+1. Build the production application bundle:
+   ```bash
+   npm run build
+   ```
+2. Launch Vite's local preview server:
+   ```bash
+   npm run preview
+   ```
+3. Open the provided URL in Google Chrome.
+
+### Verification
+- Open Chrome Developer Tools -> **Application** -> **Manifest**.
+- Ensure the name, short name, start URL, theme colors, and icons are loaded successfully.
+- Check the **Service Workers** tab to confirm that `sw.js` is registered and active.
+- Verify Chrome's PWA installability by clicking the Install icon in the browser address bar.
+
+### Installing on Mobile Devices
+
+#### iOS / iPhone Installation (Safari)
+1. Open the app URL in **Safari** on iOS.
+2. Tap the **Share** button (the square icon with an arrow pointing up at the bottom menu).
+3. Scroll down and select **"Add to Home Screen"**.
+4. Confirm the name and tap **Add** in the top right.
+
+#### Android / Chrome Installation
+1. Open the app URL in **Google Chrome** on Android.
+2. Tap the **Three Dots** menu icon in the top-right corner.
+3. Select **"Install App"** (or **"Add to Home Screen"**).
+4. Confirm the prompt to install.
+
+### How Updates Work
+The service worker is configured in `autoUpdate` mode. When updates are pushed to production, the service worker downloads the updated build assets in the background. Once ready, the browser automatically reloads or prompts the user via a Toast message to refresh and load the latest version.
