@@ -18,7 +18,8 @@ import {
   CreditCard as CreditCardIcon,
   X,
   Target,
-  Bookmark
+  Bookmark,
+  LogOut
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -31,12 +32,21 @@ import {
   Cell
 } from 'recharts';
 
-// Persistence wrapper
+// Supabase integrations
+import { supabase } from './lib/supabase';
+import { useAuth } from './hooks/useAuth';
+import { Auth } from './components/Auth';
+import { useTransactions } from './hooks/useTransactions';
+import { useCreditCards } from './hooks/useCreditCards';
+import { useBills } from './hooks/useBills';
+import { useInvestmentGoals } from './hooks/useInvestmentGoals';
+import { hasLocalData, migrateLocalData } from './lib/migrate';
+
+// Local storage key for persistent logs (e.g. recurring bill paid statuses)
 const storage = {
   get: (key, fallback) => {
     try {
-      const api = typeof window.storage !== 'undefined' ? window.storage : window.localStorage;
-      const data = api.getItem(key);
+      const data = localStorage.getItem(key);
       return data ? JSON.parse(data) : fallback;
     } catch (e) {
       console.error(`Error reading ${key} from storage:`, e);
@@ -45,8 +55,7 @@ const storage = {
   },
   set: (key, value) => {
     try {
-      const api = typeof window.storage !== 'undefined' ? window.storage : window.localStorage;
-      api.setItem(key, JSON.stringify(value));
+      localStorage.setItem(key, JSON.stringify(value));
     } catch (e) {
       console.error(`Error writing ${key} to storage:`, e);
     }
@@ -89,6 +98,13 @@ const getIssuerColor = (issuer) => {
     case 'discover': return { bg: 'rgba(245, 158, 11, 0.15)', text: '#f59e0b', border: 'rgba(245, 158, 11, 0.3)' };
     default: return { bg: 'rgba(107, 114, 128, 0.15)', text: '#9ca3af', border: 'rgba(107, 114, 128, 0.3)' };
   }
+};
+
+const formatCurrency = (amount) => {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD'
+  }).format(amount);
 };
 
 const generateId = () => {
@@ -152,35 +168,19 @@ const CustomWaterfallTooltip = ({ active, payload }) => {
 };
 
 function App() {
-  // --- Persistent States ---
-  const [transactions, setTransactions] = useState(() => {
-    const saved = storage.get('cashflow_transactions', null);
-    return saved || getSampleData().transactions;
-  });
+  // --- Auth state ---
+  const { user, loading: authLoading, signOut } = useAuth();
 
-  const [creditCards, setCreditCards] = useState(() => {
-    const saved = storage.get('cashflow_credit_cards', null);
-    return saved || getSampleData().cards;
-  });
-
-  const [bills, setBills] = useState(() => {
-    const saved = storage.get('cashflow_bills', null);
-    return saved || getSampleData().bills;
-  });
-
-  const [investmentGoals, setInvestmentGoals] = useState(() => {
-    const saved = storage.get('cashflow_investment_goals', null);
-    return saved || getSampleData().goals;
-  });
-
-  // Track manual paid status logs for specific dates (mostly for recurring bills)
-  const [paidBillsLog, setPaidBillsLog] = useState(() => {
-    return storage.get('cashflow_paid_bills_log', {});
-  });
+  // --- Supabase custom hooks for data ---
+  const { transactions, add: addTx, remove: removeTx, loading: txLoading } = useTransactions(user?.id);
+  const { creditCards, update: updateCard, add: addCard, remove: removeCard, loading: cardLoading } = useCreditCards(user?.id);
+  const { bills, update: updateBill, add: addBill, remove: removeBill, loading: billsLoading } = useBills(user?.id);
+  const { investmentGoals, update: updateGoal, add: addGoal, remove: removeGoal, loading: goalsLoading } = useInvestmentGoals(user?.id);
 
   // --- App View States ---
   const [currentDate, setCurrentDate] = useState(new Date());
   const [toasts, setToasts] = useState([]);
+  const [showMigrationBanner, setShowMigrationBanner] = useState(false);
 
   // --- Modals / Interaction States ---
   const [selectedCalendarDay, setSelectedCalendarDay] = useState(null);
@@ -209,10 +209,7 @@ function App() {
   const [newBillName, setNewBillName] = useState('');
   const [newBillAmount, setNewBillAmount] = useState('');
   const [newBillCategory, setNewBillCategory] = useState('Utilities');
-  const [newBillCardId, setNewBillCardId] = useState(() => {
-    const saved = storage.get('cashflow_credit_cards', null) || getSampleData().cards;
-    return saved.length > 0 ? saved[0].id : '';
-  });
+  const [newBillCardId, setNewBillCardId] = useState('');
   const [newBillRecurring, setNewBillRecurring] = useState(true);
   const [billErrors, setBillErrors] = useState({});
 
@@ -231,26 +228,33 @@ function App() {
   const [filterCategory, setFilterCategory] = useState('All');
   const [filterType, setFilterType] = useState('All');
 
-  // --- Save to Storage Hooks ---
-  useEffect(() => {
-    storage.set('cashflow_transactions', transactions);
-  }, [transactions]);
+  // Track manual paid status logs for specific dates (local state)
+  const [paidBillsLog, setPaidBillsLog] = useState(() => {
+    return storage.get('cashflow_paid_bills_log', {});
+  });
 
+  // Default assigned card selection for forms
   useEffect(() => {
-    storage.set('cashflow_credit_cards', creditCards);
-  }, [creditCards]);
+    if (creditCards && creditCards.length > 0 && !newBillCardId) {
+      setTimeout(() => {
+        setNewBillCardId(creditCards[0].id);
+      }, 0);
+    }
+  }, [creditCards, newBillCardId]);
 
-  useEffect(() => {
-    storage.set('cashflow_bills', bills);
-  }, [bills]);
-
-  useEffect(() => {
-    storage.set('cashflow_investment_goals', investmentGoals);
-  }, [investmentGoals]);
-
+  // Sync paid bills logs to local storage
   useEffect(() => {
     storage.set('cashflow_paid_bills_log', paidBillsLog);
   }, [paidBillsLog]);
+
+  // Trigger migration banner if local data is detected on mount
+  useEffect(() => {
+    if (user) {
+      setTimeout(() => {
+        setShowMigrationBanner(hasLocalData());
+      }, 0);
+    }
+  }, [user]);
 
   // --- Toast Manager Helper ---
   const addToast = (message, toastType = 'success') => {
@@ -261,17 +265,19 @@ function App() {
     }, 3500);
   };
 
-  // --- Auto-Charge Pending Bills on Load ---
+  // --- Auto-Charge Pending Bills on Load (Supabase integration) ---
   useEffect(() => {
+    if (!user || bills.length === 0 || creditCards.length === 0) return;
+
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0];
     const todayYear = today.getFullYear();
     const todayMonth = today.getMonth();
 
-    let updatedCards = [...creditCards];
-    let updatedTx = [...transactions];
-    let updatedLog = { ...paidBillsLog };
     let changed = false;
+    const cardsToUpdate = {};
+    const txToInsert = [];
+    const updatedLog = { ...paidBillsLog };
 
     bills.forEach((b) => {
       const bDateObj = new Date(b.date + 'T00:00:00');
@@ -280,10 +286,10 @@ function App() {
         if (b.date <= todayStr && !b.paid) {
           b.paid = true;
           changed = true;
+          
           if (b.cardId) {
-            updatedCards = updatedCards.map((c) => (c.id === b.cardId ? { ...c, balance: c.balance + b.amount } : c));
-            updatedTx.unshift({
-              id: generateId(),
+            cardsToUpdate[b.cardId] = (cardsToUpdate[b.cardId] ?? 0) + b.amount;
+            txToInsert.push({
               description: `Auto-charged Bill: ${b.name}`,
               amount: b.amount,
               type: 'expense',
@@ -291,10 +297,11 @@ function App() {
               date: b.date,
               cardId: b.cardId
             });
+            // Update single bill paid state locally
+            updateBill(b.id, { paid: true });
           }
         }
       } else {
-        // scan recurring monthly instances from birth date month to today's month
         const startY = bDateObj.getFullYear();
         const startM = bDateObj.getMonth();
         let tempY = startY;
@@ -310,9 +317,8 @@ function App() {
             changed = true;
 
             if (b.cardId) {
-              updatedCards = updatedCards.map((c) => (c.id === b.cardId ? { ...c, balance: c.balance + b.amount } : c));
-              updatedTx.unshift({
-                id: generateId(),
+              cardsToUpdate[b.cardId] = (cardsToUpdate[b.cardId] ?? 0) + b.amount;
+              txToInsert.push({
                 description: `Auto-charged Bill: ${b.name}`,
                 amount: b.amount,
                 type: 'expense',
@@ -333,15 +339,28 @@ function App() {
     });
 
     if (changed) {
-      setTimeout(() => {
-        setCreditCards(updatedCards);
-        setTransactions(updatedTx);
-        setPaidBillsLog(updatedLog);
-        addToast('Auto-charged pending bills to credit cards!');
+      setTimeout(async () => {
+        try {
+          // Perform card balance updates
+          for (const cardId of Object.keys(cardsToUpdate)) {
+            const card = creditCards.find((c) => c.id === cardId);
+            if (card) {
+              await updateCard(cardId, { balance: card.balance + cardsToUpdate[cardId] });
+            }
+          }
+          // Insert transactions
+          for (const tx of txToInsert) {
+            await addTx(tx);
+          }
+          setPaidBillsLog(updatedLog);
+          addToast('Auto-charged pending bills to credit cards!');
+        } catch (e) {
+          console.error('Failed to process auto-charge routing:', e);
+        }
       }, 0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [bills, creditCards, user]);
 
   // --- Month Navigation Helpers ---
   const handlePrevMonth = () => {
@@ -389,7 +408,7 @@ function App() {
     return monthlyBills.reduce((sum, b) => sum + b.amount, 0);
   }, [monthlyBills]);
 
-  // --- Calculations for Top Row Summary & Waterfall Chart ---
+  // --- Calculations for Summary & Waterfall ---
   const monthlySummary = useMemo(() => {
     let income = 0;
     let expenses = 0;
@@ -413,7 +432,7 @@ function App() {
     };
   }, [transactions, currentYear, currentMonth]);
 
-  // Sum of card payments (staged under 'Credit Card' category as expense)
+  // Sum of card payments (Credit Card category as expense)
   const monthlyCardPayoffsTotal = useMemo(() => {
     return transactions.reduce((sum, tx) => {
       const txDateObj = new Date(tx.date + 'T00:00:00');
@@ -426,7 +445,7 @@ function App() {
     }, 0);
   }, [transactions, currentYear, currentMonth]);
 
-  // Estimated total monthly rewards (calculated on current balances across cards)
+  // Estimated total monthly rewards
   const estimatedTotalRewards = useMemo(() => {
     return creditCards.reduce((sum, card) => sum + (card.balance * ((parseFloat(card.cashback) || 0) / 100)), 0);
   }, [creditCards]);
@@ -437,14 +456,9 @@ function App() {
     const billsVal = monthlyBillsTotal;
     const payoffs = monthlyCardPayoffsTotal;
     
-    // Free cash is income minus bills (auto-charged) and card payoffs
     const freeCash = Math.max(0, income - billsVal - payoffs);
-
-    // Sum of active goal contributions
     const investTotal = investmentGoals.reduce((sum, g) => sum + (parseFloat(g.contribution) || 0), 0);
     const investClamped = Math.min(freeCash, investTotal);
-
-    // Spend budget is what remains
     const spendVal = Math.max(0, freeCash - investClamped);
 
     return [
@@ -469,12 +483,11 @@ function App() {
 
   // --- 5. Spend Envelope Tracker Calculations ---
   const spendEnvelopeMetrics = useMemo(() => {
-    // Envelope budget = Income - Bills - Investment contributions
     const monthlyBillsVal = monthlyBillsTotal;
     const investTotal = investmentGoals.reduce((sum, g) => sum + (parseFloat(g.contribution) || 0), 0);
     const totalBudget = Math.max(0, monthlySummary.income - monthlyBillsVal - investTotal);
 
-    // Discretionary spent: Expense transactions that are NOT card payoffs AND NOT bills
+    // Discretionary spent: Expense transactions not card payoffs & not bills
     const spentDiscretionary = transactions.reduce((sum, tx) => {
       const txDateObj = new Date(tx.date + 'T00:00:00');
       if (txDateObj.getFullYear() === currentYear && txDateObj.getMonth() === currentMonth) {
@@ -525,263 +538,6 @@ function App() {
     return 'util-red';
   }, [spendEnvelopeMetrics.percent]);
 
-  // --- Credit Card Action Handlers ---
-  const handleAddCard = (e) => {
-    e.preventDefault();
-    const errors = {};
-    if (!newCardName.trim()) errors.name = 'Card name is required';
-
-    const parsedLimit = parseFloat(newCardLimit);
-    if (isNaN(parsedLimit) || parsedLimit <= 0) errors.limit = 'Limit must be positive';
-
-    const parsedBalance = parseFloat(newCardBalance || 0);
-    if (isNaN(parsedBalance) || parsedBalance < 0) errors.balance = 'Balance cannot be negative';
-
-    const parsedCashback = parseFloat(newCardCashback);
-    if (isNaN(parsedCashback) || parsedCashback < 0) errors.cashback = 'Cashback must be positive';
-
-    if (Object.keys(errors).length > 0) {
-      setCardErrors(errors);
-      return;
-    }
-
-    const newCard = {
-      id: generateId(),
-      name: newCardName.trim(),
-      issuer: newCardIssuer,
-      limit: parsedLimit,
-      balance: parsedBalance,
-      cashback: parsedCashback,
-      statementClose: newCardCloseDay
-    };
-
-    setCreditCards((prev) => [...prev, newCard]);
-    addToast(`Card "${newCard.name}" added successfully!`);
-
-    // Reset Form
-    setNewCardName('');
-    setNewCardLimit('');
-    setNewCardBalance('');
-    setNewCardIssuer('Chase');
-    setNewCardCashback('1.5');
-    setNewCardCloseDay('15th');
-    setCardErrors({});
-    setShowAddCard(false);
-  };
-
-  const handleDeleteCard = (id) => {
-    const cardToDelete = creditCards.find((c) => c.id === id);
-    setCreditCards((prev) => prev.filter((c) => c.id !== id));
-    addToast(`Deleted card "${cardToDelete.name}"`, 'delete');
-    if (payingCardId === id) setPayingCardId(null);
-  };
-
-  const handlePayCard = (e) => {
-    e.preventDefault();
-    const amountToPay = parseFloat(paymentAmount);
-    if (isNaN(amountToPay) || amountToPay <= 0) {
-      addToast('Please enter a positive payment amount.', 'delete');
-      return;
-    }
-
-    const card = creditCards.find((c) => c.id === payingCardId);
-    if (!card) return;
-
-    if (amountToPay > card.balance) {
-      addToast(`Payment amount exceeds the card balance of $${card.balance.toFixed(2)}`, 'delete');
-      return;
-    }
-
-    // Reduce Card Balance
-    setCreditCards((prev) => 
-      prev.map((c) => (c.id === payingCardId ? { ...c, balance: Math.max(0, c.balance - amountToPay) } : c))
-    );
-
-    // Create Expense Transaction
-    const todayStr = new Date().toISOString().split('T')[0];
-    const newTx = {
-      id: generateId(),
-      description: `CC Payoff: ${card.name}`,
-      amount: amountToPay,
-      type: 'expense',
-      category: 'Credit Card',
-      date: todayStr,
-      cardId: null // payoff is a debit transfer, not charged to a card
-    };
-
-    setTransactions((prev) => [newTx, ...prev]);
-    addToast(`Logged card payment of $${amountToPay.toFixed(2)}!`);
-
-    // Reset payment states
-    setPayingCardId(null);
-    setPaymentAmount('');
-  };
-
-  // --- Investment Goal Action Handlers ---
-  const handleAddGoal = (e) => {
-    e.preventDefault();
-    const errors = {};
-    if (!newGoalName.trim()) errors.name = 'Goal name is required';
-
-    const parsedTarget = parseFloat(newGoalTarget);
-    if (isNaN(parsedTarget) || parsedTarget <= 0) errors.target = 'Target must be positive';
-
-    const parsedContrib = parseFloat(newGoalContribution);
-    if (isNaN(parsedContrib) || parsedContrib <= 0) errors.contribution = 'Monthly contribution must be positive';
-
-    const parsedInvested = parseFloat(newGoalInvested || 0);
-    if (isNaN(parsedInvested) || parsedInvested < 0) errors.invested = 'Invested amount cannot be negative';
-
-    if (Object.keys(errors).length > 0) {
-      setGoalErrors(errors);
-      return;
-    }
-
-    const newGoal = {
-      id: generateId(),
-      name: newGoalName.trim(),
-      target: parsedTarget,
-      contribution: parsedContrib,
-      invested: parsedInvested
-    };
-
-    setInvestmentGoals((prev) => [...prev, newGoal]);
-    addToast(`Investment Goal "${newGoal.name}" saved!`);
-
-    // Reset Form
-    setNewGoalName('');
-    setNewGoalTarget('');
-    setNewGoalContribution('');
-    setNewGoalInvested('');
-    setGoalErrors({});
-    setShowAddGoal(false);
-  };
-
-  const handleDeleteGoal = (id) => {
-    const goalToDelete = investmentGoals.find((g) => g.id === id);
-    setInvestmentGoals((prev) => prev.filter((g) => g.id !== id));
-    addToast(`Deleted investment goal "${goalToDelete.name}"`, 'delete');
-  };
-
-  const handleQuickInvest = (goalId) => {
-    const goal = investmentGoals.find((g) => g.id === goalId);
-    if (!goal) return;
-
-    const investAmt = goal.contribution;
-
-    setInvestmentGoals((prev) => 
-      prev.map((g) => (g.id === goalId ? { ...g, invested: Math.min(g.target, g.invested + investAmt) } : g))
-    );
-
-    // Create Expense Transaction
-    const todayStr = new Date().toISOString().split('T')[0];
-    const newTx = {
-      id: generateId(),
-      description: `Invested to ${goal.name}`,
-      amount: investAmt,
-      type: 'expense',
-      category: 'Other',
-      date: todayStr,
-      cardId: null
-    };
-
-    setTransactions((prev) => [newTx, ...prev]);
-    addToast(`Invested $${investAmt.toFixed(2)} to "${goal.name}"!`);
-  };
-
-  // --- Bill Action Handlers ---
-  const handleAddBill = (e) => {
-    e.preventDefault();
-    const errors = {};
-    if (!newBillName.trim()) errors.name = 'Bill name is required';
-
-    const amt = parseFloat(newBillAmount);
-    if (isNaN(amt) || amt <= 0) errors.amount = 'Amount must be positive';
-
-    if (Object.keys(errors).length > 0) {
-      setBillErrors(errors);
-      return;
-    }
-
-    const newBill = {
-      id: generateId(),
-      name: newBillName.trim(),
-      amount: amt,
-      category: newBillCategory,
-      date: selectedCalendarDay,
-      paid: false,
-      cardId: newBillCardId || null,
-      recurring: newBillRecurring
-    };
-
-    setBills((prev) => [...prev, newBill]);
-    addToast(`Added bill: "${newBill.name}" for ${selectedCalendarDay}!`);
-
-    // Reset Form
-    setNewBillName('');
-    setNewBillAmount('');
-    setBillErrors({});
-  };
-
-  const handleToggleBillPaid = (billId, instanceDate) => {
-    const bill = bills.find((b) => b.id === billId);
-    if (!bill) return;
-
-    const key = `${bill.id}-${instanceDate}`;
-    const isCurrentlyPaid = bill.recurring ? paidBillsLog[key] : bill.paid;
-    const newPaidStatus = !isCurrentlyPaid;
-
-    // Save paid status
-    if (bill.recurring) {
-      setPaidBillsLog((prev) => ({ ...prev, [key]: newPaidStatus }));
-    } else {
-      setBills((prev) => prev.map((b) => (b.id === billId ? { ...b, paid: newPaidStatus } : b)));
-    }
-
-    if (newPaidStatus) {
-      // Charge to Credit Card if assigned
-      if (bill.cardId) {
-        setCreditCards((prev) => 
-          prev.map((c) => (c.id === bill.cardId ? { ...c, balance: c.balance + bill.amount } : c))
-        );
-      }
-
-      // Create expense transaction
-      const newTx = {
-        id: generateId(),
-        description: `Paid Bill: ${bill.name}`,
-        amount: bill.amount,
-        type: 'expense',
-        category: bill.category,
-        date: instanceDate,
-        cardId: bill.cardId || null
-      };
-
-      setTransactions((prev) => [newTx, ...prev]);
-      addToast(`Bill "${bill.name}" marked paid & charged!`);
-    } else {
-      // Refund Card Balance if assigned
-      if (bill.cardId) {
-        setCreditCards((prev) => 
-          prev.map((c) => (c.id === bill.cardId ? { ...c, balance: Math.max(0, c.balance - bill.amount) } : c))
-        );
-      }
-
-      // Delete corresponding transaction
-      setTransactions((prev) => 
-        prev.filter((t) => !(t.description === `Paid Bill: ${bill.name}` && t.amount === bill.amount && t.date === instanceDate))
-      );
-      addToast(`Bill "${bill.name}" marked unpaid.`);
-    }
-  };
-
-  const handleDeleteBill = (billId) => {
-    const billToDelete = bills.find((b) => b.id === billId);
-    setBills((prev) => prev.filter((b) => b.id !== billId));
-    addToast(`Deleted bill "${billToDelete.name}"`, 'delete');
-  };
-
-  // --- Calendar Cell Grid Generator ---
   const calendarDays = useMemo(() => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
@@ -821,13 +577,333 @@ function App() {
     return list;
   }, [currentDate]);
 
+  const filteredTransactions = useMemo(() => {
+    return transactions
+      .filter((tx) => {
+        const matchesSearch = tx.description.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesCategory = filterCategory === 'All' || tx.category === filterCategory;
+        const matchesType = filterType === 'All' || tx.type === filterType;
+        return matchesSearch && matchesCategory && matchesType;
+      })
+      .sort((a, b) => new Date(b.date + 'T00:00:00') - new Date(a.date + 'T00:00:00'));
+  }, [transactions, searchTerm, filterCategory, filterType]);
+
+  // --- Local storage migration handler ---
+  const handleMigrateData = async () => {
+    try {
+      addToast('Migrating local database to Supabase...');
+      await migrateLocalData(user.id);
+      setShowMigrationBanner(false);
+      addToast('Data migration successful!');
+      setTimeout(() => window.location.reload(), 1000);
+    } catch (e) {
+      console.error(e);
+      addToast('Migration failed. Please try again.', 'delete');
+    }
+  };
+
+  const handleIgnoreMigration = () => {
+    localStorage.clear();
+    setShowMigrationBanner(false);
+    addToast('Local storage cleared.', 'delete');
+  };
+
+  // --- Credit Card Action Handlers ---
+  const handleAddCard = async (e) => {
+    e.preventDefault();
+    const errors = {};
+    if (!newCardName.trim()) errors.name = 'Card name is required';
+
+    const parsedLimit = parseFloat(newCardLimit);
+    if (isNaN(parsedLimit) || parsedLimit <= 0) errors.limit = 'Limit must be positive';
+
+    const parsedBalance = parseFloat(newCardBalance || 0);
+    if (isNaN(parsedBalance) || parsedBalance < 0) errors.balance = 'Balance cannot be negative';
+
+    const parsedCashback = parseFloat(newCardCashback);
+    if (isNaN(parsedCashback) || parsedCashback < 0) errors.cashback = 'Cashback must be positive';
+
+    if (Object.keys(errors).length > 0) {
+      setCardErrors(errors);
+      return;
+    }
+
+    try {
+      const newCard = {
+        name: newCardName.trim(),
+        issuer: newCardIssuer,
+        limit: parsedLimit,
+        balance: parsedBalance,
+        cashback: parsedCashback,
+        statementClose: newCardCloseDay
+      };
+
+      await addCard(newCard);
+      addToast(`Card "${newCard.name}" added successfully!`);
+
+      // Reset Form
+      setNewCardName('');
+      setNewCardLimit('');
+      setNewCardBalance('');
+      setNewCardIssuer('Chase');
+      setNewCardCashback('1.5');
+      setNewCardCloseDay('15th');
+      setCardErrors({});
+      setShowAddCard(false);
+    } catch (err) {
+      console.error('Failed to add credit card:', err);
+      addToast('Failed to add credit card.', 'delete');
+    }
+  };
+
+  const handleDeleteCard = async (id) => {
+    try {
+      const cardToDelete = creditCards.find((c) => c.id === id);
+      await removeCard(id);
+      addToast(`Deleted card "${cardToDelete?.name}"`, 'delete');
+      if (payingCardId === id) setPayingCardId(null);
+    } catch (err) {
+      console.error('Failed to delete credit card:', err);
+      addToast('Failed to delete credit card.', 'delete');
+    }
+  };
+
+  const handlePayCard = async (e) => {
+    e.preventDefault();
+    const amountToPay = parseFloat(paymentAmount);
+    if (isNaN(amountToPay) || amountToPay <= 0) {
+      addToast('Please enter a positive payment amount.', 'delete');
+      return;
+    }
+
+    const card = creditCards.find((c) => c.id === payingCardId);
+    if (!card) return;
+
+    if (amountToPay > card.balance) {
+      addToast(`Payment amount exceeds the card balance of $${card.balance.toFixed(2)}`, 'delete');
+      return;
+    }
+
+    try {
+      // Reduce Card Balance
+      await updateCard(payingCardId, { balance: Math.max(0, card.balance - amountToPay) });
+
+      // Create Expense Transaction
+      const todayStr = new Date().toISOString().split('T')[0];
+      const newTx = {
+        description: `CC Payoff: ${card.name}`,
+        amount: amountToPay,
+        type: 'expense',
+        category: 'Credit Card',
+        date: todayStr,
+        cardId: null
+      };
+
+      await addTx(newTx);
+      addToast(`Logged card payment of $${amountToPay.toFixed(2)}!`);
+
+      // Reset payment states
+      setPayingCardId(null);
+      setPaymentAmount('');
+    } catch (err) {
+      console.error('Failed to process card payment:', err);
+      addToast('Failed to process card payment.', 'delete');
+    }
+  };
+
+  // --- Investment Goal Action Handlers ---
+  const handleAddGoal = async (e) => {
+    e.preventDefault();
+    const errors = {};
+    if (!newGoalName.trim()) errors.name = 'Goal name is required';
+
+    const parsedTarget = parseFloat(newGoalTarget);
+    if (isNaN(parsedTarget) || parsedTarget <= 0) errors.target = 'Target must be positive';
+
+    const parsedContrib = parseFloat(newGoalContribution);
+    if (isNaN(parsedContrib) || parsedContrib <= 0) errors.contribution = 'Monthly contribution must be positive';
+
+    const parsedInvested = parseFloat(newGoalInvested || 0);
+    if (isNaN(parsedInvested) || parsedInvested < 0) errors.invested = 'Invested amount cannot be negative';
+
+    if (Object.keys(errors).length > 0) {
+      setGoalErrors(errors);
+      return;
+    }
+
+    try {
+      const newGoal = {
+        name: newGoalName.trim(),
+        target: parsedTarget,
+        contribution: parsedContrib,
+        invested: parsedInvested
+      };
+
+      await addGoal(newGoal);
+      addToast(`Investment Goal "${newGoal.name}" saved!`);
+
+      // Reset Form
+      setNewGoalName('');
+      setNewGoalTarget('');
+      setNewGoalContribution('');
+      setNewGoalInvested('');
+      setGoalErrors({});
+      setShowAddGoal(false);
+    } catch (err) {
+      console.error('Failed to create investment goal:', err);
+      addToast('Failed to create investment goal.', 'delete');
+    }
+  };
+
+  const handleDeleteGoal = async (id) => {
+    try {
+      const goalToDelete = investmentGoals.find((g) => g.id === id);
+      await removeGoal(id);
+      addToast(`Deleted investment goal "${goalToDelete?.name}"`, 'delete');
+    } catch (err) {
+      console.error('Failed to delete goal:', err);
+      addToast('Failed to delete goal.', 'delete');
+    }
+  };
+
+  const handleQuickInvest = async (goalId) => {
+    const goal = investmentGoals.find((g) => g.id === goalId);
+    if (!goal) return;
+
+    const investAmt = goal.contribution;
+
+    try {
+      await updateGoal(goalId, { invested: Math.min(goal.target, goal.invested + investAmt) });
+
+      // Create Expense Transaction
+      const todayStr = new Date().toISOString().split('T')[0];
+      const newTx = {
+        description: `Invested to ${goal.name}`,
+        amount: investAmt,
+        type: 'expense',
+        category: 'Other',
+        date: todayStr,
+        cardId: null
+      };
+
+      await addTx(newTx);
+      addToast(`Invested $${investAmt.toFixed(2)} to "${goal.name}"!`);
+    } catch (err) {
+      console.error('Failed to log quick investment:', err);
+      addToast('Failed to log quick investment.', 'delete');
+    }
+  };
+
+  // --- Bill Action Handlers ---
+  const handleAddBill = async (e) => {
+    e.preventDefault();
+    const errors = {};
+    if (!newBillName.trim()) errors.name = 'Bill name is required';
+
+    const amt = parseFloat(newBillAmount);
+    if (isNaN(amt) || amt <= 0) errors.amount = 'Amount must be positive';
+
+    if (Object.keys(errors).length > 0) {
+      setBillErrors(errors);
+      return;
+    }
+
+    try {
+      const newBill = {
+        name: newBillName.trim(),
+        amount: amt,
+        category: newBillCategory,
+        date: selectedCalendarDay,
+        paid: false,
+        cardId: newBillCardId || null,
+        recurring: newBillRecurring
+      };
+
+      await addBill(newBill);
+      addToast(`Added bill: "${newBill.name}" for ${selectedCalendarDay}!`);
+
+      // Reset Form
+      setNewBillName('');
+      setNewBillAmount('');
+      setBillErrors({});
+    } catch (err) {
+      console.error('Failed to add bill schedule:', err);
+      addToast('Failed to add bill schedule.', 'delete');
+    }
+  };
+
+  const handleToggleBillPaid = async (billId, instanceDate) => {
+    const bill = bills.find((b) => b.id === billId);
+    if (!bill) return;
+
+    const key = `${bill.id}-${instanceDate}`;
+    const isCurrentlyPaid = bill.recurring ? paidBillsLog[key] : bill.paid;
+    const newPaidStatus = !isCurrentlyPaid;
+
+    try {
+      if (bill.recurring) {
+        setPaidBillsLog((prev) => ({ ...prev, [key]: newPaidStatus }));
+      } else {
+        await updateBill(billId, { paid: newPaidStatus });
+      }
+
+      if (newPaidStatus) {
+        if (bill.cardId) {
+          const card = creditCards.find((c) => c.id === bill.cardId);
+          if (card) {
+            await updateCard(bill.cardId, { balance: card.balance + bill.amount });
+          }
+        }
+
+        const newTx = {
+          description: `Paid Bill: ${bill.name}`,
+          amount: bill.amount,
+          type: 'expense',
+          category: bill.category,
+          date: instanceDate,
+          cardId: bill.cardId || null
+        };
+
+        await addTx(newTx);
+        addToast(`Bill "${bill.name}" marked paid & charged!`);
+      } else {
+        if (bill.cardId) {
+          const card = creditCards.find((c) => c.id === bill.cardId);
+          if (card) {
+            await updateCard(bill.cardId, { balance: Math.max(0, card.balance - bill.amount) });
+          }
+        }
+
+        const txToDelete = transactions.find((t) => t.description === `Paid Bill: ${bill.name}` && t.amount === bill.amount && t.date === instanceDate);
+        if (txToDelete) {
+          await removeTx(txToDelete.id);
+        }
+        addToast(`Bill "${bill.name}" marked unpaid.`);
+      }
+    } catch (err) {
+      console.error('Error toggling bill status:', err);
+      addToast('Error toggling bill status.', 'delete');
+    }
+  };
+
+  const handleDeleteBill = async (billId) => {
+    try {
+      const billToDelete = bills.find((b) => b.id === billId);
+      await removeBill(billId);
+      addToast(`Deleted bill "${billToDelete?.name}"`, 'delete');
+    } catch (err) {
+      console.error('Failed to delete scheduled bill:', err);
+      addToast('Failed to delete scheduled bill.', 'delete');
+    }
+  };
+
   // --- Transaction Log Action Handlers ---
   const handleTypeChange = (newType) => {
     setTxType(newType);
     setTxCategory(newType === 'income' ? 'Income' : 'Food');
   };
 
-  const handleSubmitTransaction = (e) => {
+  const handleSubmitTransaction = async (e) => {
     e.preventDefault();
     const errors = {};
 
@@ -845,83 +921,150 @@ function App() {
 
     const assignedCardId = txType === 'expense' && txCardId ? txCardId : null;
 
-    const newTx = {
-      id: generateId(),
-      description: txDesc.trim(),
-      amount: parsedAmt,
-      type: txType,
-      category: txType === 'income' ? 'Income' : txCategory,
-      date: txDate,
-      cardId: assignedCardId
-    };
+    try {
+      const newTx = {
+        description: txDesc.trim(),
+        amount: parsedAmt,
+        type: txType,
+        category: txType === 'income' ? 'Income' : txCategory,
+        date: txDate,
+        cardId: assignedCardId
+      };
 
-    // If transaction is an expense charged to a card, increase that card's balance
-    if (assignedCardId) {
-      setCreditCards((prev) => 
-        prev.map((c) => (c.id === assignedCardId ? { ...c, balance: c.balance + parsedAmt } : c))
-      );
+      if (assignedCardId) {
+        const card = creditCards.find((c) => c.id === assignedCardId);
+        if (card) {
+          await updateCard(assignedCardId, { balance: card.balance + parsedAmt });
+        }
+      }
+
+      await addTx(newTx);
+      addToast('Transaction recorded successfully!');
+
+      setTxDesc('');
+      setTxAmount('');
+      setTxErrors({});
+      setSuccessFlash(true);
+      setTimeout(() => setSuccessFlash(false), 800);
+    } catch (err) {
+      console.error('Failed to save transaction:', err);
+      addToast('Failed to save transaction.', 'delete');
     }
-
-    setTransactions((prev) => [newTx, ...prev]);
-    addToast('Transaction recorded successfully!');
-
-    // Reset Form
-    setTxDesc('');
-    setTxAmount('');
-    setTxErrors({});
-    setSuccessFlash(true);
-    setTimeout(() => setSuccessFlash(false), 800);
   };
 
-  const handleDeleteTransaction = (id) => {
+  const handleDeleteTransaction = async (id) => {
     const txToDelete = transactions.find((t) => t.id === id);
     if (!txToDelete) return;
 
-    // If the deleted transaction was charged to a card, decrease that card's balance
-    if (txToDelete.type === 'expense' && txToDelete.cardId) {
-      setCreditCards((prev) => 
-        prev.map((c) => (c.id === txToDelete.cardId ? { ...c, balance: Math.max(0, c.balance - txToDelete.amount) } : c))
-      );
-    }
+    try {
+      if (txToDelete.type === 'expense' && txToDelete.cardId) {
+        const card = creditCards.find((c) => c.id === txToDelete.cardId);
+        if (card) {
+          await updateCard(txToDelete.cardId, { balance: Math.max(0, card.balance - txToDelete.amount) });
+        }
+      }
 
-    setTransactions((prev) => prev.filter((t) => t.id !== id));
-    addToast(`Deleted "${txToDelete.description}"`, 'delete');
+      await removeTx(id);
+      addToast(`Deleted "${txToDelete.description}"`, 'delete');
+    } catch (err) {
+      console.error('Failed to delete transaction:', err);
+      addToast('Failed to delete transaction.', 'delete');
+    }
   };
 
-  const handleResetAllData = () => {
+  // --- Reset Preset Data on Supabase ---
+  const handleResetAllData = async () => {
     if (window.confirm('Are you sure you want to reset all data back to original sample presets?')) {
-      const sample = getSampleData();
-      setTransactions(sample.transactions);
-      setCreditCards(sample.cards);
-      setBills(sample.bills);
-      setInvestmentGoals(sample.goals);
-      setPaidBillsLog({});
-      addToast('Reset to original sample dataset.');
+      try {
+        // Clear User Records
+        await supabase.from('transactions').delete().eq('user_id', user.id);
+        await supabase.from('bills').delete().eq('user_id', user.id);
+        await supabase.from('credit_cards').delete().eq('user_id', user.id);
+        await supabase.from('investment_goals').delete().eq('user_id', user.id);
+
+        // Map and Insert Sample Data
+        const sample = getSampleData();
+        const cardMap = {};
+
+        const cardsToInsert = sample.cards.map((c) => {
+          const newId = crypto.randomUUID();
+          cardMap[c.id] = newId;
+          return {
+            id: newId,
+            user_id: user.id,
+            name: c.name,
+            issuer: c.issuer,
+            credit_limit: c.limit,
+            current_balance: c.balance,
+            statement_due_date: c.statementClose,
+            apr: 0,
+            cashback_rate: c.cashback
+          };
+        });
+        await supabase.from('credit_cards').insert(cardsToInsert);
+
+        const billsToInsert = sample.bills.map((b) => ({
+          user_id: user.id,
+          name: b.name,
+          amount: b.amount,
+          category: b.category,
+          assigned_card_id: cardMap[b.cardId] || null,
+          due_date: b.date,
+          is_recurring: b.recurring,
+          is_paid: b.paid
+        }));
+        await supabase.from('bills').insert(billsToInsert);
+
+        const txToInsert = sample.transactions.map((t) => ({
+          user_id: user.id,
+          description: t.description,
+          amount: t.amount,
+          type: t.type,
+          category: t.category,
+          date: t.date,
+          linked_card_id: cardMap[t.cardId] || null
+        }));
+        await supabase.from('transactions').insert(txToInsert);
+
+        const goalsToInsert = sample.goals.map((g) => ({
+          user_id: user.id,
+          name: g.name,
+          target_amount: g.target,
+          monthly_target: g.contribution,
+          current_amount: g.invested
+        }));
+        await supabase.from('investment_goals').insert(goalsToInsert);
+
+        setPaidBillsLog({});
+        addToast('Reset to original sample dataset.');
+        window.location.reload();
+      } catch (e) {
+        console.error('Error resetting presets:', e);
+        addToast('Failed to reset presets.', 'delete');
+      }
     }
   };
 
-  // --- Filtered Transaction Logs ---
-  const filteredTransactions = useMemo(() => {
-    return transactions
-      .filter((tx) => {
-        const matchesSearch = tx.description.toLowerCase().includes(searchTerm.toLowerCase());
-        const matchesCategory = filterCategory === 'All' || tx.category === filterCategory;
-        const matchesType = filterType === 'All' || tx.type === filterType;
-        return matchesSearch && matchesCategory && matchesType;
-      })
-      .sort((a, b) => new Date(b.date + 'T00:00:00') - new Date(a.date + 'T00:00:00'));
-  }, [transactions, searchTerm, filterCategory, filterType]);
+  // --- Auth Loader Render ---
+  if (authLoading) {
+    return (
+      <div className="auth-overlay">
+        <div className="loading-container text-center">
+          <RefreshCw size={36} className="spinner-icon text-teal" />
+          <p style={{ marginTop: '16px', color: 'var(--text-secondary)' }}>Verifying credentials...</p>
+        </div>
+      </div>
+    );
+  }
 
-  const formatCurrency = (amt) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    }).format(amt);
-  };
+  // --- Redirect to Auth screen if no session ---
+  if (!user) {
+    return <Auth />;
+  }
 
   return (
     <div className="dashboard-container">
-      {/* Toast HUD */}
+      {/* Toast Notification */}
       <div className="toast-container">
         {toasts.map((t) => (
           <div key={t.id} className={`toast ${t.type === 'delete' ? 'delete' : ''}`}>
@@ -931,6 +1074,20 @@ function App() {
         ))}
       </div>
 
+      {/* Migration Banner */}
+      {showMigrationBanner && (
+        <div className="migration-banner glass-card">
+          <div className="migration-banner-content">
+            <Sparkles size={18} className="glow-icon text-teal" style={{ marginRight: '8px' }} />
+            <span>We found local cache budget data on this device. Import it to your cloud account?</span>
+          </div>
+          <div className="migration-banner-actions">
+            <button onClick={handleMigrateData} className="migrate-confirm-btn">Import Data</button>
+            <button onClick={handleIgnoreMigration} className="migrate-ignore-btn">Dismiss</button>
+          </div>
+        </div>
+      )}
+
       {/* Top Header */}
       <header className="dashboard-header">
         <div className="brand">
@@ -939,7 +1096,7 @@ function App() {
           </div>
           <div className="brand-text">
             <h1>CASH FLOW</h1>
-            <p>ADVANCED WEALTH MATRIX</p>
+            <p>CLOUD FINANCE ENGINE</p>
           </div>
         </div>
         
@@ -957,20 +1114,26 @@ function App() {
         </div>
 
         <div className="header-actions">
-          {/* Total Rewards Earned Badge */}
-          <div className="rewards-nav-badge" title="Estimated monthly rewards earned based on card cashbacks">
+          {/* Rewards Badge */}
+          <div className="rewards-nav-badge" title="Estimated monthly cashback rewards owed across cards">
             <Sparkles size={14} className="glow-icon" />
-            <span>Rewards Owed: {formatCurrency(estimatedTotalRewards)}</span>
+            <span>Rewards: {formatCurrency(estimatedTotalRewards)}</span>
           </div>
 
           <button onClick={handleResetAllData} className="reset-data-btn" title="Reset all data back to default preset samples">
             <RefreshCw size={14} />
             <span>Reset Preset</span>
           </button>
+
+          {/* Sign Out Button */}
+          <button onClick={signOut} className="sign-out-btn" title="Sign out of your account">
+            <LogOut size={14} />
+            <span>Sign Out</span>
+          </button>
         </div>
       </header>
 
-      {/* 1. Hero Visualization: Recharts Cashflow Waterfall Chart */}
+      {/* Hero: Waterfall Chart */}
       <section className="glass-card waterfall-card">
         <div className="card-title-bar">
           <h2>
@@ -981,45 +1144,52 @@ function App() {
         </div>
         
         <div className="chart-container waterfall-chart-container">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart 
-              layout="vertical" 
-              data={waterfallData}
-              margin={{ top: 10, right: 20, left: 10, bottom: 10 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" horizontal={false} />
-              <XAxis 
-                type="number"
-                stroke="var(--text-muted)" 
-                fontSize={11} 
-                tickLine={false} 
-                axisLine={false} 
-                tickFormatter={(val) => `$${val}`}
-              />
-              <YAxis 
-                dataKey="name"
-                type="category"
-                stroke="var(--text-muted)" 
-                fontSize={11} 
-                tickLine={false} 
-                axisLine={false}
-                width={130}
-              />
-              <Tooltip content={<CustomWaterfallTooltip />} cursor={{ fill: 'rgba(255,255,255,0.02)' }} />
-              <Bar dataKey="range" radius={[4, 4, 4, 4]}>
-                {waterfallData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          {txLoading || cardLoading || billsLoading || goalsLoading ? (
+            <div className="loading-placeholder">
+              <RefreshCw size={24} className="spinner-icon text-teal" />
+              <span>Fetching cloud charts...</span>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart 
+                layout="vertical" 
+                data={waterfallData}
+                margin={{ top: 10, right: 20, left: 10, bottom: 10 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" horizontal={false} />
+                <XAxis 
+                  type="number"
+                  stroke="var(--text-muted)" 
+                  fontSize={11} 
+                  tickLine={false} 
+                  axisLine={false} 
+                  tickFormatter={(val) => `$${val}`}
+                />
+                <YAxis 
+                  dataKey="name"
+                  type="category"
+                  stroke="var(--text-muted)" 
+                  fontSize={11} 
+                  tickLine={false} 
+                  axisLine={false}
+                  width={130}
+                />
+                <Tooltip content={<CustomWaterfallTooltip />} cursor={{ fill: 'rgba(255,255,255,0.02)' }} />
+                <Bar dataKey="range" radius={[4, 4, 4, 4]}>
+                  {waterfallData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </section>
 
-      {/* Middle Grid Row: Credit Card Tracker (Left) & Bill Calendar (Right) */}
+      {/* Row 2: Credit Card Tracker (Left) & Bill Calendar (Right) */}
       <section className="charts-grid tracker-layout">
         
-        {/* 2. Credit Card Tracker with Routing */}
+        {/* Credit Card Tracker */}
         <div className="glass-card cc-tracker-card">
           <div className="card-title-bar">
             <h2>
@@ -1032,7 +1202,12 @@ function App() {
           </div>
 
           <div className="cc-list">
-            {creditCards.length > 0 ? (
+            {cardLoading ? (
+              <div className="loading-placeholder">
+                <RefreshCw size={20} className="spinner-icon text-teal" />
+                <span>Syncing cards...</span>
+              </div>
+            ) : creditCards.length > 0 ? (
               creditCards.map((card) => {
                 const utilRatio = card.limit > 0 ? (card.balance / card.limit) * 100 : 0;
                 let utilColorClass = 'util-green';
@@ -1099,7 +1274,7 @@ function App() {
                             {utilRatio.toFixed(0)}% Utilization
                           </span>
                         )}
-                        <span className="cc-rewards-est" title="Cashback rewards earned on balance">
+                        <span className="cc-rewards-est">
                           Est. Reward: <strong>{formatCurrency(cardRewards)}</strong>
                         </span>
                         <button onClick={() => setPayingCardId(card.id)} className="pay-card-btn">
@@ -1118,7 +1293,7 @@ function App() {
           </div>
         </div>
 
-        {/* 3. Bill Calendar with Card Assignment */}
+        {/* Bill Calendar */}
         <div className="glass-card bill-calendar-card">
           <div className="card-title-bar">
             <h2>
@@ -1131,64 +1306,69 @@ function App() {
             </div>
           </div>
 
-          {/* Weekday headers */}
           <div className="calendar-week-headers">
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
               <div key={d} className="calendar-header-cell">{d}</div>
             ))}
           </div>
 
-          {/* Days Grid */}
           <div className="calendar-days-grid">
-            {calendarDays.map((cell, idx) => {
-              const dayBills = monthlyBills.filter((b) => b.date === cell.dateStr);
-              const hasBills = dayBills.length > 0;
-              const allPaid = hasBills && dayBills.every((b) => b.paid);
-              
-              let statusClass = '';
-              if (hasBills) {
-                statusClass = allPaid ? 'day-bills-paid' : 'day-bills-unpaid';
-              }
+            {billsLoading ? (
+              <div className="loading-placeholder" style={{ gridColumn: 'span 7', height: '200px' }}>
+                <RefreshCw size={24} className="spinner-icon text-teal" />
+                <span>Syncing calendar...</span>
+              </div>
+            ) : (
+              calendarDays.map((cell, idx) => {
+                const dayBills = monthlyBills.filter((b) => b.date === cell.dateStr);
+                const hasBills = dayBills.length > 0;
+                const allPaid = hasBills && dayBills.every((b) => b.paid);
+                
+                let statusClass = '';
+                if (hasBills) {
+                  statusClass = allPaid ? 'day-bills-paid' : 'day-bills-unpaid';
+                }
 
-              return (
-                <div 
-                  key={idx} 
-                  className={`calendar-day-cell ${cell.isCurrentMonth ? '' : 'outside-month'} ${statusClass}`}
-                  onClick={() => setSelectedCalendarDay(cell.dateStr)}
-                >
-                  <span className="day-number">{cell.day}</span>
-                  {hasBills && (
-                    <div className="bill-indicator-dot"></div>
-                  )}
+                return (
+                  <div 
+                    key={idx} 
+                    className={`calendar-day-cell ${cell.isCurrentMonth ? '' : 'outside-month'} ${statusClass}`}
+                    onClick={() => setSelectedCalendarDay(cell.dateStr)}
+                  >
+                    <span className="day-number">{cell.day}</span>
+                    {hasBills && (
+                      <div className="bill-indicator-dot"></div>
+                    )}
 
-                  {/* Calendar Hover Tooltip */}
-                  {hasBills && (
-                    <div className="calendar-tooltip">
-                      <div className="tooltip-title">Bills ({cell.dateStr}):</div>
-                      <ul className="tooltip-list">
-                        {dayBills.map((b) => {
-                          const card = creditCards.find((c) => c.id === b.cardId);
-                          return (
-                            <li key={b.id} className={b.paid ? 'paid' : 'unpaid'}>
-                              {b.name} ({formatCurrency(b.amount)})
-                              <span className="tooltip-card-route"> → {card ? card.name : 'Cash'}</span>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                    {/* Tooltip on Hover */}
+                    {hasBills && (
+                      <div className="calendar-tooltip">
+                        <div className="tooltip-title">Bills ({cell.dateStr}):</div>
+                        <ul className="tooltip-list">
+                          {dayBills.map((b) => {
+                            const card = creditCards.find((c) => c.id === b.cardId);
+                            return (
+                              <li key={b.id} className={b.paid ? 'paid' : 'unpaid'}>
+                                {b.name} ({formatCurrency(b.amount)})
+                                <span className="tooltip-card-route"> → {card ? card.name : 'Cash'}</span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       </section>
 
-      {/* Row 3: Investment Goal Tracker (Left) & Spend Envelopes (Right) */}
+      {/* Row 3: Goals and Envelopes */}
       <section className="charts-grid tracker-layout">
         
-        {/* 4. Investment Goal Tracker */}
+        {/* Investment Goal Tracker */}
         <div className="glass-card investment-tracker-card">
           <div className="card-title-bar">
             <h2>
@@ -1201,7 +1381,12 @@ function App() {
           </div>
 
           <div className="goals-grid">
-            {investmentGoals.length > 0 ? (
+            {goalsLoading ? (
+              <div className="loading-placeholder">
+                <RefreshCw size={20} className="spinner-icon text-teal" />
+                <span>Syncing goals...</span>
+              </div>
+            ) : investmentGoals.length > 0 ? (
               investmentGoals.map((goal) => {
                 const progressRatio = goal.target > 0 ? (goal.invested / goal.target) * 100 : 0;
                 const projDate = getProjectedDateStr(goal);
@@ -1258,13 +1443,13 @@ function App() {
               })
             ) : (
               <div className="empty-state">
-                <p>No investment goals set. Click Add Goal to start saving.</p>
+                <p>No investment goals set.</p>
               </div>
             )}
           </div>
         </div>
 
-        {/* 5. Spend Budget Envelope */}
+        {/* Spend Envelope */}
         <div className="glass-card spend-envelope-card">
           <div className="card-title-bar">
             <h2>
@@ -1320,7 +1505,7 @@ function App() {
         </div>
       </section>
 
-      {/* 6. Transaction Log Form & Log List */}
+      {/* Row 4: Forms & Logs */}
       <section className="workspace-grid">
         
         {/* Transaction Input Form */}
@@ -1333,7 +1518,6 @@ function App() {
           </div>
 
           <form onSubmit={handleSubmitTransaction} className="transaction-form">
-            {/* Toggle Switch */}
             <div className="form-group">
               <label>Transaction Type</label>
               <div className="type-toggle-container">
@@ -1356,7 +1540,6 @@ function App() {
               </div>
             </div>
 
-            {/* Description */}
             <div className="form-group">
               <label htmlFor="tx-desc">Description</label>
               <div className="input-container">
@@ -1364,7 +1547,7 @@ function App() {
                 <input
                   id="tx-desc"
                   type="text"
-                  placeholder="e.g. Shell Gas Station"
+                  placeholder="e.g. Target Grocery"
                   className={`form-input ${txErrors.description ? 'error' : ''}`}
                   value={txDesc}
                   onChange={(e) => setTxDesc(e.target.value)}
@@ -1373,7 +1556,6 @@ function App() {
               {txErrors.description && <span className="error-text">{txErrors.description}</span>}
             </div>
 
-            {/* Amount */}
             <div className="form-group">
               <label htmlFor="tx-amount">Amount ($)</label>
               <div className="input-container">
@@ -1391,7 +1573,6 @@ function App() {
               {txErrors.amount && <span className="error-text">{txErrors.amount}</span>}
             </div>
 
-            {/* Category selection */}
             {txType === 'expense' ? (
               <div className="form-group">
                 <label htmlFor="tx-category">Category</label>
@@ -1425,7 +1606,6 @@ function App() {
               </div>
             )}
 
-            {/* Card routing assignment (For expenses) */}
             {txType === 'expense' && (
               <div className="form-group">
                 <label htmlFor="tx-card-id">Charge to Card</label>
@@ -1446,7 +1626,6 @@ function App() {
               </div>
             )}
 
-            {/* Date */}
             <div className="form-group">
               <label htmlFor="tx-date">Date</label>
               <div className="input-container">
@@ -1462,7 +1641,7 @@ function App() {
               {txErrors.date && <span className="error-text">{txErrors.date}</span>}
             </div>
 
-            <button type="submit" className="submit-btn">
+            <button type="submit" className="submit-btn" disabled={txLoading}>
               <Plus size={16} />
               Submit Transaction
             </button>
@@ -1478,7 +1657,6 @@ function App() {
             </h2>
           </div>
 
-          {/* Filters Bar */}
           <div className="log-filters">
             <div className="search-input-wrapper">
               <Search className="input-icon" size={16} style={{ top: '12px' }} />
@@ -1512,9 +1690,13 @@ function App() {
             </select>
           </div>
 
-          {/* List Section */}
           <div className="transaction-list-container">
-            {filteredTransactions.length > 0 ? (
+            {txLoading ? (
+              <div className="loading-placeholder" style={{ height: '200px' }}>
+                <RefreshCw size={24} className="spinner-icon text-teal" />
+                <span>Syncing transactions...</span>
+              </div>
+            ) : filteredTransactions.length > 0 ? (
               <div className="transaction-list">
                 {filteredTransactions.map((tx) => {
                   const card = creditCards.find((c) => c.id === tx.cardId);
@@ -1551,7 +1733,7 @@ function App() {
                             {card && (
                               <>
                                 <span>•</span>
-                                <span className="transaction-card-badge" title="Charged to credit card">
+                                <span className="transaction-card-badge">
                                   💳 {card.name}
                                 </span>
                               </>
@@ -1568,6 +1750,7 @@ function App() {
                           className="delete-btn" 
                           onClick={() => handleDeleteTransaction(tx.id)}
                           title="Delete record"
+                          disabled={txLoading}
                         >
                           <Trash2 size={15} />
                         </button>
@@ -1843,6 +2026,7 @@ function App() {
                               onClick={() => handleToggleBillPaid(bill.id, bill.date)} 
                               className={`bill-toggle-paid-btn ${bill.paid ? 'is-paid' : 'is-unpaid'}`}
                               title={bill.paid ? 'Mark unpaid' : 'Mark paid & charge card'}
+                              disabled={billsLoading}
                             >
                               {bill.paid ? <Check size={14} /> : 'Pay'}
                             </button>
@@ -1850,6 +2034,7 @@ function App() {
                               onClick={() => handleDeleteBill(bill.id)} 
                               className="bill-item-delete-btn"
                               title="Delete bill"
+                              disabled={billsLoading}
                             >
                               <Trash2 size={13} />
                             </button>
@@ -1937,7 +2122,7 @@ function App() {
                     </label>
                   </div>
 
-                  <button type="submit" className="submit-btn" style={{ marginTop: '8px' }}>
+                  <button type="submit" className="submit-btn" style={{ marginTop: '8px' }} disabled={billsLoading}>
                     <Plus size={14} /> Add Bill Day
                   </button>
                 </form>
