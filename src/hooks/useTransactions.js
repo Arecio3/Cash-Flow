@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { useOnlineStatus } from './useOnlineStatus';
+import { calculateCashAvailable } from '../lib/calculations';
 
 const mapToUI = (dbTx) => ({
   id: dbTx.id,
@@ -9,7 +10,8 @@ const mapToUI = (dbTx) => ({
   type: dbTx.type,
   category: dbTx.category,
   date: dbTx.date,
-  cardId: dbTx.linked_card_id
+  cardId: dbTx.linked_card_id,
+  transactionType: dbTx.linked_card_id ? 'credit' : 'cash'
 });
 
 const mapToDB = (uiTx, userId) => {
@@ -24,7 +26,14 @@ const mapToDB = (uiTx, userId) => {
   return dbObj;
 };
 
-export function useTransactions(userId, onStatusChange) {
+export function useTransactions(
+  userId, 
+  onStatusChange, 
+  creditCards = [], 
+  bills = [], 
+  currentYear = new Date().getFullYear(), 
+  currentMonth = new Date().getMonth()
+) {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -163,6 +172,7 @@ export function useTransactions(userId, onStatusChange) {
   const remove = async (id) => {
     if (!userId) return;
     const previousState = [...transactions];
+    const tx = transactions.find((t) => t.id === id);
 
     setTransactions((prev) => prev.filter((t) => t.id !== id));
 
@@ -173,6 +183,31 @@ export function useTransactions(userId, onStatusChange) {
         .eq('id', id);
 
       if (dbError) throw dbError;
+
+      // Automatically reverse card balance when transaction is deleted
+      if (tx && tx.type === 'expense' && tx.cardId) {
+        const { data: card, error: cardErr } = await supabase
+          .from('credit_cards')
+          .select('current_balance')
+          .eq('id', tx.cardId)
+          .single();
+
+        if (!cardErr && card) {
+          const currentBalance = parseFloat(card.current_balance) || 0;
+          let newBalance = currentBalance;
+          if (tx.category === 'Credit Card') {
+            // Deleted a payoff: add it back to what is owed
+            newBalance = currentBalance + tx.amount;
+          } else {
+            // Deleted a charge: subtract it from what is owed
+            newBalance = Math.max(0, currentBalance - tx.amount);
+          }
+          await supabase
+            .from('credit_cards')
+            .update({ current_balance: newBalance })
+            .eq('id', tx.cardId);
+        }
+      }
     } catch (err) {
       console.error('Error deleting transaction:', err);
       setTransactions(previousState);
@@ -180,7 +215,73 @@ export function useTransactions(userId, onStatusChange) {
     }
   };
 
-  return { transactions, setTransactions, loading, error, add, update, remove };
+  // --- Filter and calculate aggregates for the selected month ---
+  const filteredTxs = useMemo(() => {
+    return transactions.filter((tx) => {
+      const txDateObj = new Date(tx.date + 'T00:00:00');
+      return txDateObj.getFullYear() === currentYear && txDateObj.getMonth() === currentMonth;
+    });
+  }, [transactions, currentYear, currentMonth]);
+
+  const { cashExpensesTotal, creditExpensesTotal, cashIncomeTotal } = useMemo(() => {
+    let cashExpenses = 0;
+    let creditExpenses = 0;
+    let cashIncome = 0;
+
+    filteredTxs.forEach((tx) => {
+      const amt = parseFloat(tx.amount) || 0;
+      if (tx.type === 'income') {
+        cashIncome += amt;
+      } else if (tx.type === 'expense') {
+        const cardId = tx.cardId || tx.linked_card_id;
+        if (cardId) {
+          creditExpenses += amt;
+        } else {
+          // Payoffs are category 'Credit Card'. We exclude them from basic discretionary/bill cash expenses
+          // because they represent card payments, which are aggregated separately.
+          if (tx.category !== 'Credit Card') {
+            cashExpenses += amt;
+          }
+        }
+      }
+    });
+
+    return {
+      cashExpensesTotal: cashExpenses,
+      creditExpensesTotal: creditExpenses,
+      cashIncomeTotal: cashIncome
+    };
+  }, [filteredTxs]);
+
+  const availableCash = useMemo(() => {
+    return calculateCashAvailable(cashIncomeTotal, filteredTxs, creditCards, bills);
+  }, [cashIncomeTotal, filteredTxs, creditCards, bills]);
+
+  const creditCardChargesThisMonth = useMemo(() => {
+    const groups = {};
+    filteredTxs.forEach((tx) => {
+      const cardId = tx.cardId || tx.linked_card_id;
+      if (tx.type === 'expense' && cardId) {
+        groups[cardId] = (groups[cardId] || 0) + tx.amount;
+      }
+    });
+    return groups;
+  }, [filteredTxs]);
+
+  return {
+    transactions,
+    setTransactions,
+    loading,
+    error,
+    add,
+    update,
+    remove,
+    cashExpensesTotal,
+    creditExpensesTotal,
+    cashIncomeTotal,
+    availableCash,
+    creditCardChargesThisMonth
+  };
 }
 
 export default useTransactions;

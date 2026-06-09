@@ -4419,3 +4419,158 @@ button, a, select, input, textarea, .mobile-nav-btn, .calendar-day-cell, .pay-ca
     font-size: 12px;
   }
 }
+
+/* ==========================================================================
+   CASH FLOW APP - ADDITIONAL CASH VS CREDIT STYLES
+   ========================================================================== */
+
+/* Two-column Hero Section */
+.dashboard-hero-section-new {
+  background: #13161f !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-radius: 16px !important;
+  padding: 28px !important;
+  display: flex;
+  flex-direction: column;
+}
+
+.hero-columns-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  width: 100%;
+}
+
+.hero-column {
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+}
+
+.hero-progress-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 10px 0;
+}
+
+.hero-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 800ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.hero-divider-line {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin: 16px 0;
+  width: 100%;
+}
+
+.hero-liquid-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Warning Banners */
+.dashboard-warning-banner {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 4px;
+  transition: all var(--transition-fast);
+  width: 100%;
+}
+
+.dashboard-warning-banner.red-banner {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.dashboard-warning-banner.amber-banner {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+}
+
+.banner-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Credit Card tracker card flash update animation */
+@keyframes balanceFlash {
+  0% {
+    border-color: rgba(59, 130, 246, 0.1);
+    background-color: #13161f;
+  }
+  30% {
+    border-color: rgba(59, 130, 246, 0.8);
+    background-color: rgba(59, 130, 246, 0.08);
+    box-shadow: 0 0 15px rgba(59, 130, 246, 0.2);
+  }
+  100% {
+    border-color: rgba(255, 255, 255, 0.06);
+    background-color: #13161f;
+  }
+}
+
+.cc-card.flash-active {
+  animation: balanceFlash 1s ease-out;
+}
+
+.flash-text {
+  color: #60a5fa !important;
+  text-shadow: 0 0 8px rgba(96, 165, 250, 0.5);
+  transition: color 0.3s ease;
+}
+
+/* Flow list dividers */
+.flow-divider-row {
+  display: flex;
+  align-items: center;
+  margin: 14px 0;
+  width: 100%;
+}
+
+.flow-divider-line {
+  flex: 1;
+  border-top: 1px dotted rgba(255, 255, 255, 0.12);
+}
+
+.flow-divider-label {
+  padding: 0 10px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.3);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* Spent sublabel layout */
+.spent-sublabel {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+  text-transform: uppercase;
+  margin-left: 6px;
+  font-weight: 400;
+}
+
+@media (max-width: 768px) {
+  .hero-columns-container {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  
+  .dashboard-hero-section-new {
+    padding: 16px !important;
+  }
+}

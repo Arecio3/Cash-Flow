@@ -40,6 +40,7 @@ const CATEGORIES = ['Housing', 'Food', 'Transport', 'Utilities', 'Entertainment'
 
 export function Dashboard({
   transactions,
+  creditCards,
   monthlySummary,
   monthlyBillsTotal,
   monthlyCardPayoffsTotal,
@@ -52,7 +53,16 @@ export function Dashboard({
   billsLoading,
   goalsLoading,
   currentDate,
-  windowWidth
+  windowWidth,
+  // New props
+  cashAvailable = 0,
+  totalAvailableCredit = 0,
+  totalOwed = 0,
+  monthlyObligations = 0,
+  cashExpensesTotal = 0,
+  creditExpensesTotal = 0,
+  creditCardChargesThisMonth = {},
+  investmentGoals = []
 }) {
   const [mounted, setMounted] = useState(false);
   const [showBreakdown, setShowBreakdown] = useState(false);
@@ -87,7 +97,6 @@ export function Dashboard({
   const dailySpendData = useMemo(() => {
     const data = [];
     const today = new Date();
-    // Return 5 days on mobile, 7 days on desktop
     const daysCount = isMobile ? 5 : 7;
     for (let i = daysCount - 1; i >= 0; i--) {
       const d = new Date();
@@ -96,7 +105,9 @@ export function Dashboard({
       const dayLabel = d.toLocaleDateString('en-US', { weekday: 'short' }).substring(0, 1);
       
       const totalSpend = transactions.reduce((sum, tx) => {
-        if (tx.type === 'expense' && tx.date === dateStr) {
+        // Cash spent only (debit/cash spend, excluding card charges)
+        const cardId = tx.cardId || tx.linked_card_id;
+        if (tx.type === 'expense' && tx.date === dateStr && !cardId) {
           return sum + tx.amount;
         }
         return sum;
@@ -122,34 +133,50 @@ export function Dashboard({
 
   // --- Cascade Money Flow Math ---
   const income = monthlySummary.income;
-  const billsVal = monthlyBillsTotal;
-  const payoffs = monthlyCardPayoffsTotal;
-  const freeCash = Math.max(0, income - billsVal - payoffs);
+  const plannedPayoffs = monthlyCardPayoffsTotal;
   
-  // Calculate total investment contributions
-  const investTotal = spendEnvelopeMetrics.total - spendEnvelopeMetrics.remaining - billsVal;
-  const investClamped = Math.min(freeCash, Math.max(0, investTotal));
-  const availableToSpend = spendEnvelopeMetrics.remaining;
+  // Credit card charges in current month
+  const creditCardCharges = useMemo(() => {
+    return Object.values(creditCardChargesThisMonth).reduce((sum, amt) => sum + amt, 0);
+  }, [creditCardChargesThisMonth]);
 
-  const flowRows = [
-    { label: 'Income', amount: income, type: 'positive' },
-    { label: 'Bills charged to cards', amount: billsVal, type: 'negative' },
-    { label: 'Card payoffs', amount: payoffs, type: 'negative' },
-    { label: 'Free cash', amount: freeCash, type: 'positive' },
-    { label: 'Invest target', amount: investClamped, type: 'purple' },
-    { label: 'Available to spend', amount: availableToSpend, type: 'blue-white' }
-  ];
+  const totalCreditLimits = useMemo(() => {
+    return creditCards.reduce((sum, c) => sum + c.limit, 0);
+  }, [creditCards]);
 
-  const maxVal = Math.max(income, 1);
+  const creditAvailablePercent = totalCreditLimits > 0 ? (totalAvailableCredit / totalCreditLimits) * 100 : 0;
+
+  // Sum of investment goal targets
+  const investTarget = useMemo(() => {
+    return investmentGoals.reduce((sum, g) => sum + (parseFloat(g.contribution) || 0), 0);
+  }, [investmentGoals]);
+
+  // Available to deploy (cash + credit combined)
+  const availableToDeploy = cashAvailable + totalAvailableCredit;
+
+  const flowRows = useMemo(() => {
+    return [
+      { label: 'Income', amount: income, type: 'positive' },
+      { label: 'Cash bills & expenses', amount: cashExpensesTotal, type: 'negative' },
+      { label: 'Card payoffs planned', amount: plannedPayoffs, type: 'negative' },
+      { label: 'Cash available', amount: cashAvailable, type: 'positive', highlight: true },
+      { type: 'divider', label: 'CREDIT (not cash)' },
+      { label: 'Credit card charges', amount: creditCardCharges, type: 'purple' },
+      { label: 'Available credit', amount: totalAvailableCredit, type: 'blue' },
+      { type: 'divider' },
+      { label: 'Invest target', amount: investTarget, type: 'negative-purple' },
+      { label: 'Available to deploy', amount: availableToDeploy, type: 'white', highlight: true }
+    ];
+  }, [income, cashExpensesTotal, plannedPayoffs, cashAvailable, creditCardCharges, totalAvailableCredit, investTarget, availableToDeploy]);
+
+  const maxVal = Math.max(income, totalAvailableCredit, 1);
 
   const categoryBudgets = useMemo(() => {
-    // Map current active month transactions to categories
     const categoriesMap = {};
     CATEGORIES.forEach(cat => {
-      categoriesMap[cat] = { spent: 0, budget: cat === 'Income' ? 0 : 250 }; // Default sample budgets
+      categoriesMap[cat] = { spent: 0, budget: cat === 'Income' ? 0 : 250 };
     });
 
-    // Custom adjustments based on presets
     categoriesMap['Housing'].budget = 1200;
     categoriesMap['Food'].budget = 500;
     categoriesMap['Transport'].budget = 300;
@@ -181,8 +208,11 @@ export function Dashboard({
       .filter(c => c.budget > 0);
   }, [transactions, currentDate]);
 
-  const spentSoFar = monthlySummary.expenses;
-  const percentSpent = income > 0 ? (spentSoFar / income) * 100 : 0;
+  const percentSpent = income > 0 ? (cashExpensesTotal / income) * 100 : 0;
+
+  // --- Warnings & Banners ---
+  const creditDebtWarning = totalOwed > 0.2 * income && income > 0;
+  const lowCashWarning = cashAvailable < monthlyObligations;
 
   if (txLoading || cardLoading || billsLoading || goalsLoading) {
     return (
@@ -201,55 +231,104 @@ export function Dashboard({
   return (
     <div className="redesigned-dashboard">
       
-      {/* SECTION 1: HERO NUMBER */}
-      <section className="dashboard-hero-section">
-        <span className="hero-label">AVAILABLE TO SPEND</span>
-        <h1 className="hero-number">
-          <AnimatedNumber value={availableToSpend} format={formatCurrency} />
-        </h1>
-        <p className="hero-subtitle">
-          of {formatCurrency(income)} income this month
-        </p>
-
-        {/* Progress track */}
-        <div className="hero-progress-track">
-          <div 
-            className="hero-progress-fill" 
-            style={{ width: mounted ? `${Math.min(100, spendEnvelopeMetrics.percent)}%` : '0%' }}
-          ></div>
-        </div>
-
-        {/* Inline statistics row */}
-        {isMobile ? (
-          <div className="hero-stats-mobile-grid">
-            <div className="hero-stat-cell">
-              <strong>{formatCurrency(dailySpendAllowance)}/day</strong>
-              <span>allowance</span>
-            </div>
-            <div className="hero-stat-cell">
-              <strong>{daysLeftInMonth} days</strong>
-              <span>remaining</span>
-            </div>
-            <div className="hero-stat-cell full-width">
-              <strong>{spendEnvelopeMetrics.percent.toFixed(0)}%</strong>
-              <span>of budget left</span>
-            </div>
-          </div>
-        ) : (
-          <div className="hero-stats-row">
-            <span className="hero-stat-item">
-              <strong>{formatCurrency(dailySpendAllowance)}/day</strong> allowance
-            </span>
-            <span className="hero-stat-divider">·</span>
-            <span className="hero-stat-item">
-              <strong>{daysLeftInMonth} days</strong> remaining
-            </span>
-            <span className="hero-stat-divider">·</span>
-            <span className="hero-stat-item">
-              <strong>{spendEnvelopeMetrics.percent.toFixed(0)}%</strong> of budget left
-            </span>
+      {/* SECTION: SMART WARNING BANNERS */}
+      <div className="dashboard-banners-container" style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
+        {lowCashWarning && (
+          <div className="dashboard-warning-banner red-banner" style={{
+            background: 'rgba(239, 68, 68, 0.08)',
+            border: '1px solid rgba(239, 68, 68, 0.2)',
+            borderRadius: '12px',
+            padding: '12px 16px',
+            color: '#ef4444',
+            fontSize: '14px',
+            fontWeight: '500',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <span>⚠️</span>
+            <span>Low cash warning — only <strong>{formatCurrency(cashAvailable)}</strong> available after obligations</span>
           </div>
         )}
+        {creditDebtWarning && (
+          <div className="dashboard-warning-banner amber-banner" style={{
+            background: 'rgba(245, 158, 11, 0.08)',
+            border: '1px solid rgba(245, 158, 11, 0.2)',
+            borderRadius: '12px',
+            padding: '12px 16px',
+            color: '#f59e0b',
+            fontSize: '14px',
+            fontWeight: '500',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <span>⚠️</span>
+            <span>Your card balances are <strong>{formatCurrency(totalOwed)}</strong> — consider scheduling a payoff</span>
+          </div>
+        )}
+      </div>
+
+      {/* SECTION 1: HERO NUMBER (TWO COLUMN SPLIT) */}
+      <section className="dashboard-hero-section-new glass-card" style={{ width: '100%' }}>
+        <div className="hero-columns-container" style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '24px' }}>
+          {/* Left Column: Cash Available */}
+          <div className="hero-column left-column">
+            <span className="hero-label">CASH AVAILABLE</span>
+            <h1 className="hero-number val-green" style={{ fontSize: '40px', margin: '8px 0 4px 0' }}>
+              <AnimatedNumber value={cashAvailable} format={formatCurrency} />
+            </h1>
+            <p className="hero-subtitle" style={{ fontSize: '13px', color: 'rgba(255, 255, 255, 0.4)', margin: '0 0 16px 0' }}>
+              after bills & payoffs
+            </p>
+            <div className="hero-progress-track">
+              <div 
+                className="hero-progress-fill" 
+                style={{ 
+                  width: mounted && income > 0 ? `${Math.min(100, (cashAvailable / income) * 100)}%` : '0%',
+                  backgroundColor: '#22c55e'
+                }}
+              ></div>
+            </div>
+            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>
+              {income > 0 ? ((cashAvailable / income) * 100).toFixed(0) : 0}% of income remaining
+            </span>
+          </div>
+
+          {/* Right Column: Credit Available */}
+          <div className="hero-column right-column">
+            <span className="hero-label" style={{ color: '#a78bfa' }}>CREDIT AVAILABLE</span>
+            <h1 className="hero-number val-purple" style={{ fontSize: '40px', margin: '8px 0 4px 0', color: '#a78bfa' }}>
+              <AnimatedNumber value={totalAvailableCredit} format={formatCurrency} />
+            </h1>
+            <p className="hero-subtitle" style={{ fontSize: '13px', color: 'rgba(255, 255, 255, 0.4)', margin: '0 0 16px 0' }}>
+              across {creditCards.length} {creditCards.length === 1 ? 'card' : 'cards'}
+            </p>
+            <div className="hero-progress-track">
+              <div 
+                className="hero-progress-fill" 
+                style={{ 
+                  width: mounted && totalCreditLimits > 0 ? `${Math.min(100, creditAvailablePercent)}%` : '0%',
+                  backgroundColor: '#a78bfa'
+                }}
+              ></div>
+            </div>
+            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>
+              {totalCreditLimits > 0 ? creditAvailablePercent.toFixed(0) : 0}% available credit limit
+            </span>
+          </div>
+        </div>
+
+        <div className="hero-divider-line" style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', margin: '20px 0' }} />
+
+        {/* Bottom Row: True Liquid Position */}
+        <div className="hero-liquid-row" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
+          <span className="hero-label" style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.05em', margin: 0 }}>TRUE LIQUID POSITION</span>
+          <strong style={{ fontSize: '18px', color: '#ffffff' }}>
+            {formatCurrency(cashAvailable - totalOwed)}
+          </strong>
+          <span className="info-tooltip-trigger" title="Your cash minus what you currently owe on all credit cards" style={{ cursor: 'help', color: 'rgba(255,255,255,0.3)', fontSize: '14px' }}>ℹ️</span>
+        </div>
       </section>
 
       {/* SECTION 2: SUMMARY STRIP */}
@@ -271,39 +350,42 @@ export function Dashboard({
         </div>
 
         {/* Card 2: Spent */}
-        <div className="glass-card summary-strip-card">
+        <div className="glass-card summary-strip-card" style={{ gap: '8px' }}>
           <div className="card-header-label">
             <span className="status-dot dot-red"></span>
             SPENT SO FAR
           </div>
-          <div className="card-large-val val-red">
-            <AnimatedNumber value={spentSoFar} format={formatCurrency} />
+          <div className="card-large-val val-red" style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+            <AnimatedNumber value={cashExpensesTotal} format={formatCurrency} />
+            <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase' }}>cash spent</span>
           </div>
-          <div className="card-footer-lbl">
-            <span>{percentSpent.toFixed(0)}% of income</span>
-            <div className="card-mini-track">
-              <div 
-                className="card-mini-fill fill-red"
-                style={{ width: mounted ? `${Math.min(100, percentSpent)}%` : '0%' }}
-              ></div>
-            </div>
+          <div className="card-medium-val val-purple" style={{ fontSize: '14px', marginTop: '2px', display: 'flex', alignItems: 'center' }}>
+            <AnimatedNumber value={creditExpensesTotal} format={formatCurrency} />
+            <span style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.4)', marginLeft: '4px', textTransform: 'uppercase' }}>on cards</span>
+            <span className="info-tooltip-trigger" title="Card charges don't reduce your cash until you make a payment" style={{ marginLeft: '6px', cursor: 'help', color: 'rgba(255,255,255,0.3)', fontSize: '12px' }}>ℹ️</span>
           </div>
         </div>
 
         {/* Card 3: Net */}
         <div className="glass-card summary-strip-card">
           <div className="card-header-label">
-            <span className={`status-dot ${monthlySummary.net >= 0 ? 'dot-green' : 'dot-red'}`}></span>
+            <span className={`status-dot ${cashAvailable >= 0 ? 'dot-green' : 'dot-red'}`}></span>
             NET CASHFLOW
           </div>
-          <div className={`card-large-val ${monthlySummary.net >= 0 ? 'val-green' : 'val-red'}`}>
-            {monthlySummary.net >= 0 ? '+' : ''}
-            <AnimatedNumber value={monthlySummary.net} format={formatCurrency} />
+          <div className={`card-large-val ${cashAvailable >= 0 ? 'val-green' : 'val-red'}`}>
+            {cashAvailable >= 0 ? '+' : ''}
+            <AnimatedNumber value={cashAvailable} format={formatCurrency} />
           </div>
           <div className="card-footer-lbl">
-            <span className={monthlySummary.net >= 0 ? 'text-green' : 'text-red'}>
-              {monthlySummary.net >= 0 ? 'on track' : 'over budget'}
-            </span>
+            {totalOwed > 0 ? (
+              <span className="text-amber" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                ⚠️ {formatCurrency(totalOwed)} owed on cards
+              </span>
+            ) : (
+              <span className={cashAvailable >= 0 ? 'text-green' : 'text-red'}>
+                {cashAvailable >= 0 ? 'on track' : 'over budget'}
+              </span>
+            )}
           </div>
         </div>
       </section>
@@ -320,6 +402,20 @@ export function Dashboard({
 
           <div className="money-flow-list">
             {flowRows.map((row, idx) => {
+              if (row.type === 'divider') {
+                return (
+                  <div key={`divider-${idx}`} className="flow-divider-row" style={{ display: 'flex', alignItems: 'center', margin: '14px 0' }}>
+                    <div className="flow-divider-line" style={{ flex: 1, borderTop: '1px dotted rgba(255, 255, 255, 0.12)' }} />
+                    {row.label && (
+                      <span className="flow-divider-label" style={{ padding: '0 10px', fontSize: '10px', color: 'rgba(255,255,255,0.3)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                        {row.label}
+                      </span>
+                    )}
+                    <div className="flow-divider-line" style={{ flex: 1, borderTop: '1px dotted rgba(255, 255, 255, 0.12)' }} />
+                  </div>
+                );
+              }
+
               const barPercent = income > 0 ? (row.amount / maxVal) * 100 : 0;
               let amountTextClass = 'val-neutral';
               let barColorClass = 'bar-blue-white';
@@ -333,15 +429,21 @@ export function Dashboard({
               } else if (row.type === 'purple') {
                 amountTextClass = 'text-purple';
                 barColorClass = 'bar-purple';
+              } else if (row.type === 'blue') {
+                amountTextClass = 'text-blue';
+                barColorClass = 'bar-blue';
+              } else if (row.type === 'negative-purple') {
+                amountTextClass = 'text-purple';
+                barColorClass = 'bar-purple';
               }
 
-              const isLast = idx === flowRows.length - 1;
+              const isHighlight = row.highlight;
 
               return (
                 <div 
                   key={row.label} 
-                  className={`money-flow-row ${mounted ? 'animate' : ''} ${isLast ? 'flow-highlight-row' : ''}`}
-                  style={{ transitionDelay: `${idx * 100}ms` }}
+                  className={`money-flow-row ${mounted ? 'animate' : ''} ${isHighlight ? 'flow-highlight-row' : ''}`}
+                  style={{ transitionDelay: `${idx * 40}ms` }}
                 >
                   <div className="flow-col-step">
                     <span className="step-badge">{idx + 1}</span>
@@ -350,7 +452,7 @@ export function Dashboard({
                     <span>{row.label}</span>
                   </div>
                   <div className={`flow-col-amount ${amountTextClass}`}>
-                    {row.type === 'negative' ? '-' : ''}
+                    {(row.type === 'negative' || row.type === 'negative-purple') ? '-' : ''}
                     {formatCurrency(row.amount)}
                   </div>
                   {!isMobile && (
@@ -385,7 +487,6 @@ export function Dashboard({
               <div className="allowance-right">
                 <div className="circular-progress-wrapper">
                   <svg className="circular-progress-svg" viewBox="0 0 64 64">
-                    {/* Background track circle */}
                     <circle 
                       className="circle-track" 
                       cx="32" 
@@ -393,7 +494,6 @@ export function Dashboard({
                       r={radius} 
                       strokeWidth="5"
                     />
-                    {/* Dynamic green indicator circle */}
                     <circle 
                       className="circle-indicator" 
                       cx="32" 
@@ -468,6 +568,25 @@ export function Dashboard({
                 style={{ width: mounted ? `${Math.min(100, spendEnvelopeMetrics.percent)}%` : '0%' }}
               ></div>
             </div>
+
+            {/* Credit Exposure Warning */}
+            {spendEnvelopeMetrics.creditExposure > 0 && (
+              <div className="envelope-credit-warning" style={{
+                fontSize: '12px',
+                color: '#f59e0b',
+                background: 'rgba(245, 158, 11, 0.06)',
+                border: '1px solid rgba(245, 158, 11, 0.15)',
+                borderRadius: '8px',
+                padding: '8px 12px',
+                marginTop: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}>
+                <span>⚠️</span>
+                <span><strong>{formatCurrency(spendEnvelopeMetrics.creditExposure)}</strong> charged to cards — plan a payoff to protect your budget</span>
+              </div>
+            )}
 
             <div className="envelope-stats-summary">
               <div className="envelope-stat-box">

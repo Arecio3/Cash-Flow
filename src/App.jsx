@@ -40,6 +40,10 @@ import { InstallPrompt } from './components/InstallPrompt';
 
 import { ImportModal } from './components/ImportModal';
 import { Dashboard } from './components/Dashboard';
+import { CreditCardTracker } from './components/CreditCardTracker';
+import { TransactionLog } from './components/TransactionLog';
+import { useBudgets } from './hooks/useBudgets';
+import { calculateMonthlyObligations } from './lib/calculations';
 
 // Local storage key for persistent logs (e.g. recurring bill paid statuses)
 const storage = {
@@ -156,8 +160,7 @@ function App() {
   const [realtimeStatus, setRealtimeStatus] = useState('connected');
 
   // --- Supabase custom hooks for data ---
-  const { transactions, add: addTx, remove: removeTx, loading: txLoading } = useTransactions(user?.id, setRealtimeStatus);
-  const { creditCards, update: updateCard, add: addCard, remove: removeCard, loading: cardLoading } = useCreditCards(user?.id, setRealtimeStatus);
+  const { creditCards, update: updateCard, add: addCard, remove: removeCard, loading: cardLoading, availableCreditPerCard, totalAvailableCredit, totalOwed } = useCreditCards(user?.id, setRealtimeStatus);
   const { bills, update: updateBill, add: addBill, remove: removeBill, loading: billsLoading } = useBills(user?.id, setRealtimeStatus);
   const { investmentGoals, update: updateGoal, add: addGoal, remove: removeGoal, loading: goalsLoading } = useInvestmentGoals(user?.id, setRealtimeStatus);
 
@@ -460,49 +463,65 @@ function App() {
     return monthlyBills.reduce((sum, b) => sum + b.amount, 0);
   }, [monthlyBills]);
 
-  // --- Calculations for Summary & Waterfall ---
-  const monthlySummary = useMemo(() => {
-    let income = 0;
-    let expenses = 0;
+  // Hook for Transactions with passed data
+  const { 
+    transactions, 
+    add: addTx, 
+    remove: removeTx, 
+    loading: txLoading,
+    cashExpensesTotal,
+    creditExpensesTotal,
+    cashIncomeTotal,
+    availableCash,
+    creditCardChargesThisMonth
+  } = useTransactions(user?.id, setRealtimeStatus, creditCards, monthlyBills, currentYear, currentMonth);
 
+  // Group planned payoffs by card id for the selected month
+  const plannedPayoffsPerCard = useMemo(() => {
+    const groups = {};
     transactions.forEach((tx) => {
       const txDateObj = new Date(tx.date + 'T00:00:00');
       if (txDateObj.getFullYear() === currentYear && txDateObj.getMonth() === currentMonth) {
-        const amt = parseFloat(tx.amount) || 0;
-        if (tx.type === 'income') {
-          income += amt;
-        } else {
-          expenses += amt;
+        if (tx.type === 'expense' && tx.category === 'Credit Card' && tx.cardId) {
+          groups[tx.cardId] = (groups[tx.cardId] || 0) + tx.amount;
         }
       }
     });
-
-    return {
-      income,
-      expenses,
-      net: income - expenses
-    };
+    return groups;
   }, [transactions, currentYear, currentMonth]);
+
+  // Recalculate balances on load one time
+  useEffect(() => {
+    if (user && creditCards && creditCards.length > 0 && !cardLoading) {
+      import('./lib/recalculate').then(({ checkAndRecalculateBalances }) => {
+        checkAndRecalculateBalances(user.id, creditCards, addToast);
+      });
+    }
+  }, [user, creditCards, cardLoading]);
+
+  // --- Calculations for Summary & Waterfall ---
+  const monthlySummary = useMemo(() => {
+    return {
+      income: cashIncomeTotal,
+      expenses: cashExpensesTotal + creditExpensesTotal,
+      net: availableCash
+    };
+  }, [cashIncomeTotal, cashExpensesTotal, creditExpensesTotal, availableCash]);
 
   // Sum of card payments (Credit Card category as expense)
   const monthlyCardPayoffsTotal = useMemo(() => {
-    return transactions.reduce((sum, tx) => {
-      const txDateObj = new Date(tx.date + 'T00:00:00');
-      if (txDateObj.getFullYear() === currentYear && txDateObj.getMonth() === currentMonth) {
-        if (tx.type === 'expense' && tx.category === 'Credit Card') {
-          return sum + (parseFloat(tx.amount) || 0);
-        }
-      }
-      return sum;
-    }, 0);
-  }, [transactions, currentYear, currentMonth]);
+    return Object.values(plannedPayoffsPerCard).reduce((sum, val) => sum + val, 0);
+  }, [plannedPayoffsPerCard]);
 
   // Estimated total monthly rewards
   const estimatedTotalRewards = useMemo(() => {
     return creditCards.reduce((sum, card) => sum + (card.balance * ((parseFloat(card.cashback) || 0) / 100)), 0);
   }, [creditCards]);
 
-
+  // Total monthly obligations
+  const monthlyObligations = useMemo(() => {
+    return calculateMonthlyObligations(creditCards, monthlyBills).total;
+  }, [creditCards, monthlyBills]);
 
   // --- Investment Goals Completion Dates ---
   const getProjectedDateStr = (goal) => {
@@ -514,32 +533,16 @@ function App() {
     return format(dateObj, 'MMM yyyy');
   };
 
-  // --- Spend Envelope Tracker Calculations ---
-  const spendEnvelopeMetrics = useMemo(() => {
-    const monthlyBillsVal = monthlyBillsTotal;
-    const investTotal = investmentGoals.reduce((sum, g) => sum + (parseFloat(g.contribution) || 0), 0);
-    const totalBudget = Math.max(0, monthlySummary.income - monthlyBillsVal - investTotal);
-
-    const spentDiscretionary = transactions.reduce((sum, tx) => {
-      const txDateObj = new Date(tx.date + 'T00:00:00');
-      if (txDateObj.getFullYear() === currentYear && txDateObj.getMonth() === currentMonth) {
-        if (tx.type === 'expense' && tx.category !== 'Credit Card' && !tx.description.startsWith('Paid Bill:') && !tx.description.startsWith('Auto-charged Bill:')) {
-          return sum + (parseFloat(tx.amount) || 0);
-        }
-      }
-      return sum;
-    }, 0);
-
-    const remaining = Math.max(0, totalBudget - spentDiscretionary);
-    const percent = totalBudget > 0 ? (remaining / totalBudget) * 100 : 0;
-
-    return {
-      total: totalBudget,
-      spent: spentDiscretionary,
-      remaining,
-      percent
-    };
-  }, [transactions, monthlySummary, monthlyBillsTotal, investmentGoals, currentYear, currentMonth]);
+  // --- Spend Envelope Tracker Calculations using custom hook ---
+  const spendEnvelopeMetrics = useBudgets({
+    transactions,
+    creditCards,
+    bills: monthlyBills,
+    investmentGoals,
+    cashAvailable: availableCash,
+    currentYear,
+    currentMonth
+  });
 
   const daysLeftInMonth = useMemo(() => {
     const today = new Date();
@@ -712,8 +715,6 @@ function App() {
     }
 
     try {
-      await updateCard(payingCardId, { balance: Math.max(0, card.balance - amountToPay) });
-
       const todayStr = new Date().toISOString().split('T')[0];
       const newTx = {
         description: `CC Payoff: ${card.name}`,
@@ -721,7 +722,7 @@ function App() {
         type: 'expense',
         category: 'Credit Card',
         date: todayStr,
-        cardId: null
+        cardId: card.id
       };
 
       await addTx(newTx);
@@ -994,11 +995,15 @@ function App() {
         cardId: txType === 'expense' ? (txCardId || null) : null
       };
 
-      // Perform card balance addition if expense routed to credit card
+      // Perform utilization warning check
       if (txType === 'expense' && txCardId) {
         const card = creditCards.find((c) => c.id === txCardId);
         if (card) {
-          await updateCard(txCardId, { balance: card.balance + parsedAmt });
+          const newBalance = card.balance + parsedAmt;
+          const utilRatio = card.limit > 0 ? (newBalance / card.limit) * 100 : 0;
+          if (utilRatio > 30) {
+            addToast(`${card.name} is now at ${utilRatio.toFixed(0)}% utilization`, 'warning');
+          }
         }
       }
 
@@ -1020,14 +1025,6 @@ function App() {
 
   const handleDeleteTransaction = async (id) => {
     try {
-      const tx = transactions.find((t) => t.id === id);
-      if (tx && tx.type === 'expense' && tx.cardId) {
-        const card = creditCards.find((c) => c.id === tx.cardId);
-        if (card) {
-          await updateCard(tx.cardId, { balance: Math.max(0, card.balance - tx.amount) });
-        }
-      }
-
       await removeTx(id);
       addToast('Transaction record deleted.', 'delete');
     } catch (err) {
@@ -1048,14 +1045,6 @@ function App() {
           date: row.date,
           cardId: row.cardId || null
         };
-
-        // If card linked, add amount to card balance
-        if (row.type === 'expense' && row.cardId) {
-          const card = creditCards.find(c => c.id === row.cardId);
-          if (card) {
-            await updateCard(row.cardId, { balance: card.balance + row.amount });
-          }
-        }
 
         await addTx(newTx);
       }
@@ -1324,157 +1313,39 @@ function App() {
           goalsLoading={goalsLoading}
           currentDate={currentDate}
           windowWidth={windowWidth}
+          cashAvailable={availableCash}
+          totalAvailableCredit={totalAvailableCredit}
+          totalOwed={totalOwed}
+          monthlyObligations={monthlyObligations}
+          cashExpensesTotal={cashExpensesTotal}
+          creditExpensesTotal={creditExpensesTotal}
+          creditCardChargesThisMonth={creditCardChargesThisMonth}
+          investmentGoals={investmentGoals}
         />
       </div>
 
       {/* --- CARDS VIEW (Tab 1 or Desktop) --- */}
       <div className={`tab-section ${activeTab === 1 ? 'active' : ''}`}>
-        <div className="glass-card cc-tracker-card full-card">
-          <div className="card-title-bar">
-            <h2>
-              <CreditCardIcon size={18} style={{ color: 'var(--accent-blue)' }} />
-              Credit Cards
-            </h2>
-            <button onClick={() => setShowAddCard(true)} className="add-btn">
-              <Plus size={14} /> Add Card
-            </button>
-          </div>
-
-          <div className="cc-list">
-            {cardLoading ? (
-              <div className="skeleton-list">
-                {[1, 2].map(i => <div key={i} className="skeleton-card pulse"></div>)}
-              </div>
-            ) : creditCards.length > 0 ? (
-              creditCards.map((card) => {
-                const utilRatio = card.limit > 0 ? (card.balance / card.limit) * 100 : 0;
-                let utilColorClass = 'util-green';
-                if (utilRatio >= 30 && utilRatio <= 60) utilColorClass = 'util-amber';
-                else if (utilRatio > 60) utilColorClass = 'util-red';
-
-                const isPaidOff = card.balance === 0;
-                const issuerInfo = getIssuerColor(card.issuer);
-                const cardRewards = card.balance * ((parseFloat(card.cashback) || 0) / 100);
-                const notesOpen = !!openCardNotes[card.id];
-
-                return (
-                  <div key={card.id} className="cc-card">
-                    <div className="cc-header">
-                      <div className="cc-title-info">
-                        <span className="cc-name">{card.name}</span>
-                        <span 
-                          className="cc-issuer-badge"
-                          style={{
-                            backgroundColor: issuerInfo.bg,
-                            color: issuerInfo.text,
-                            borderColor: issuerInfo.border
-                          }}
-                        >
-                          {card.issuer}
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        <button onClick={() => handleOpenEditCard(card)} className="cc-edit-btn" title="Edit credit card">
-                          <Edit2 size={13} />
-                        </button>
-                        <button onClick={() => handleDeleteCard(card.id)} className="cc-delete-btn" title="Delete credit card">
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="cc-details-row">
-                      <span className="cc-sub-lbl">Statement Close: <strong>{card.statementClose}</strong></span>
-                      <span className="cc-sub-lbl">Cashback: <strong>{card.cashback}%</strong></span>
-                    </div>
-
-                    <div className="cc-balances">
-                      <div>
-                        <span className="cc-balance-label">Balance</span>
-                        <p className="cc-balance-val">{formatCurrency(card.balance)}</p>
-                      </div>
-                      <div className="text-right">
-                        <span className="cc-balance-label">Limit</span>
-                        <p className="cc-limit-val">{formatCurrency(card.limit)}</p>
-                      </div>
-                    </div>
-
-                    {/* Progress utilization bar */}
-                    <div className="cc-util-container">
-                      <div className="cc-util-bar">
-                        <div 
-                          className={`cc-util-fill ${utilColorClass}`}
-                          style={{ width: `${Math.min(100, utilRatio)}%` }}
-                        ></div>
-                      </div>
-                      
-                      <div className="cc-status-row">
-                        {isPaidOff ? (
-                          <span className="status-badge paid-off">
-                            <Check size={12} /> Paid off
-                          </span>
-                        ) : (
-                          <span className="status-badge utilization">
-                            {utilRatio.toFixed(0)}% Utilization
-                          </span>
-                        )}
-                        <span className="cc-rewards-est">
-                          Est. Reward: <strong>{formatCurrency(cardRewards)}</strong>
-                        </span>
-                        <button onClick={() => setPayingCardId(card.id)} className="pay-card-btn">
-                          Make Payment
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Notes Section */}
-                    <div className="cc-notes-section">
-                      <button 
-                        onClick={() => toggleNotesCollapse(card.id)} 
-                        className="notes-toggle-btn"
-                        type="button"
-                      >
-                        {notesOpen ? 'Hide Notes' : 'Show Notes'}
-                      </button>
-
-                      {notesOpen && (
-                        <div className="notes-content-box">
-                          {inlineEditingCardNotesId === card.id ? (
-                            <div className="inline-notes-edit-form">
-                              <textarea
-                                value={inlineNotesValue}
-                                onChange={(e) => setInlineNotesValue(e.target.value)}
-                                className="form-input inline-notes-textarea"
-                                placeholder="Write card notes here..."
-                              />
-                              <div className="inline-notes-actions">
-                                <button onClick={() => handleSaveInlineNotes(card.id)} className="btn-small save">Save</button>
-                                <button onClick={() => setInlineEditingCardNotesId(null)} className="btn-small cancel">Cancel</button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="notes-text-display">
-                              <p className="notes-text-p">{card.notes || <span className="no-notes-placeholder">No notes added. Click edit to add notes.</span>}</p>
-                              <button onClick={() => handleStartInlineNotesEdit(card)} className="notes-inline-edit-btn" title="Edit notes inline">
-                                <Edit2 size={12} />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="empty-state">
-                <CreditCardIcon size={40} className="empty-icon text-muted" />
-                <p>No credit cards configured.</p>
-                <button onClick={() => setShowAddCard(true)} className="add-btn mt-button">Add Card</button>
-              </div>
-            )}
-          </div>
-        </div>
+        <CreditCardTracker
+          creditCards={creditCards}
+          cardLoading={cardLoading}
+          creditCardChargesThisMonth={creditCardChargesThisMonth}
+          plannedPayoffsPerCard={plannedPayoffsPerCard}
+          formatCurrency={formatCurrency}
+          getIssuerColor={getIssuerColor}
+          openCardNotes={openCardNotes}
+          toggleNotesCollapse={toggleNotesCollapse}
+          inlineEditingCardNotesId={inlineEditingCardNotesId}
+          inlineNotesValue={inlineNotesValue}
+          setInlineNotesValue={setInlineNotesValue}
+          handleSaveInlineNotes={handleSaveInlineNotes}
+          handleStartInlineNotesEdit={handleStartInlineNotesEdit}
+          setPayingCardId={setPayingCardId}
+          handleOpenEditCard={handleOpenEditCard}
+          handleDeleteCard={handleDeleteCard}
+          setShowAddCard={setShowAddCard}
+          setInlineEditingCardNotesId={setInlineEditingCardNotesId}
+        />
       </div>
 
       {/* --- CALENDAR VIEW (Tab 2 or Desktop) --- */}
@@ -1637,306 +1508,40 @@ function App() {
       {/* --- TRANSACTIONS LOG & FORMS VIEW (Tab 4 or Desktop) --- */}
       <div className={`tab-section ${activeTab === 4 ? 'active' : ''}`}>
         <section className="workspace-grid full-grid-mobile">
-          {/* Transaction Input Form */}
-          <div className={`glass-card transaction-form-card ${successFlash ? 'form-success-flash' : ''} ${showMobileTxForm ? 'mobile-active' : ''}`}>
-            <div className="card-title-bar">
-              <h2>
-                <Plus size={18} style={{ color: 'var(--accent-blue)' }} />
-                Log Transaction
-              </h2>
-              <button 
-                type="button" 
-                className="mobile-sheet-close-btn" 
-                onClick={() => setShowMobileTxForm(false)}
-                aria-label="Close form sheet"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmitTransaction} className="transaction-form">
-              <div className="form-group">
-                <label>Transaction Type</label>
-                <div className="type-toggle-container">
-                  <button
-                    type="button"
-                    className={`type-toggle-btn expense ${txType === 'expense' ? 'active' : ''}`}
-                    onClick={() => handleTypeChange('expense')}
-                  >
-                    <TrendingDown size={14} />
-                    Expense
-                  </button>
-                  <button
-                    type="button"
-                    className={`type-toggle-btn income ${txType === 'income' ? 'active' : ''}`}
-                    onClick={() => handleTypeChange('income')}
-                  >
-                    <TrendingUp size={14} />
-                    Income
-                  </button>
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="tx-desc">Description</label>
-                <div className="input-container">
-                  <Tag className="input-icon" size={16} />
-                  <input
-                    id="tx-desc"
-                    type="text"
-                    placeholder="e.g. Target Grocery"
-                    className={`form-input ${txErrors.description ? 'error' : ''}`}
-                    value={txDesc}
-                    onChange={(e) => setTxDesc(e.target.value)}
-                  />
-                </div>
-                {txErrors.description && <span className="error-text">{txErrors.description}</span>}
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="tx-amount">Amount ($)</label>
-                <div className="input-container">
-                  <DollarSign className="input-icon" size={16} />
-                  <input
-                    id="tx-amount"
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    className={`form-input ${txErrors.amount ? 'error' : ''}`}
-                    value={txAmount}
-                    onChange={(e) => setTxAmount(e.target.value)}
-                  />
-                </div>
-                {txErrors.amount && <span className="error-text">{txErrors.amount}</span>}
-              </div>
-
-              {txType === 'expense' ? (
-                <div className="form-group">
-                  <label htmlFor="tx-category">Category</label>
-                  <div className="input-container">
-                    <Tag className="input-icon" size={16} />
-                    <select
-                      id="tx-category"
-                      className="form-select"
-                      value={txCategory}
-                      onChange={(e) => setTxCategory(e.target.value)}
-                    >
-                      {CATEGORIES.filter((c) => c !== 'Income').map((cat) => (
-                        <option key={cat} value={cat}>{CATEGORY_EMOJIS[cat]} {cat}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              ) : (
-                <div className="form-group">
-                  <label>Category</label>
-                  <div className="input-container">
-                    <Tag className="input-icon" size={16} />
-                    <input
-                      type="text"
-                      className="form-input"
-                      value="💰 Income"
-                      disabled
-                      style={{ opacity: 0.6, cursor: 'not-allowed' }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {txType === 'expense' && (
-                <div className="form-group">
-                  <label htmlFor="tx-card-id">Charge to Card</label>
-                  <div className="input-container">
-                    <CreditCardIcon className="input-icon" size={16} />
-                    <select
-                      id="tx-card-id"
-                      className="form-select"
-                      value={txCardId}
-                      onChange={(e) => setTxCardId(e.target.value)}
-                    >
-                      <option value="">None / Paid in Cash</option>
-                      {creditCards.map((card) => (
-                        <option key={card.id} value={card.id}>{card.name} (Close: {card.statementClose})</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              )}
-
-              <div className="form-group">
-                <label htmlFor="tx-date">Date</label>
-                <div className="input-container">
-                  <Calendar className="input-icon" size={16} />
-                  <input
-                    id="tx-date"
-                    type="date"
-                    className={`form-input ${txErrors.date ? 'error' : ''}`}
-                    value={txDate}
-                    onChange={(e) => setTxDate(e.target.value)}
-                  />
-                </div>
-                {txErrors.date && <span className="error-text">{txErrors.date}</span>}
-              </div>
-
-              <button type="submit" className="submit-btn" disabled={txLoading}>
-                <Plus size={16} />
-                Submit Transaction
-              </button>
-            </form>
-          </div>
-
-          {/* Transaction History Log */}
-          <div className="glass-card scrollable-log-card" style={{ display: 'flex', flexDirection: 'column' }}>
-            <div className="card-title-bar">
-              <h2>
-                <Filter size={18} style={{ color: 'var(--accent-blue)' }} />
-                Transaction Log
-              </h2>
-              
-              {/* Import statement action button */}
-              <button 
-                onClick={() => setShowImportModal(true)} 
-                className="import-statement-btn"
-                title="Import statement files (CSV, PDF, OFX)"
-                type="button"
-              >
-                <FileSpreadsheet size={14} />
-                <span>Import Statement</span>
-              </button>
-            </div>
-
-            <div className="log-filters">
-              <div className="search-input-wrapper">
-                <Search className="input-icon" size={16} style={{ top: '12px' }} />
-                <input
-                  type="text"
-                  placeholder="Search description..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-
-              <select
-                className="filter-select"
-                value={filterType}
-                onChange={(e) => setFilterType(e.target.value)}
-              >
-                <option value="All">All Types</option>
-                <option value="income">Income Only</option>
-                <option value="expense">Expense Only</option>
-              </select>
-
-              <select
-                className="filter-select"
-                value={filterCategory}
-                onChange={(e) => setFilterCategory(e.target.value)}
-              >
-                <option value="All">All Categories</option>
-                {CATEGORIES.map((cat) => (
-                  <option key={cat} value={cat}>{CATEGORY_EMOJIS[cat]} {cat}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="transaction-list-container">
-              {txLoading ? (
-                <div className="skeleton-list">
-                  {[1, 2, 3].map(i => <div key={i} className="skeleton-row pulse"></div>)}
-                </div>
-              ) : filteredTransactions.length > 0 ? (
-                <div className="transaction-list">
-                  {filteredTransactions.map((tx) => {
-                    const card = creditCards.find((c) => c.id === tx.cardId);
-                    
-                    // Format date dynamically using date-fns
-                    let formattedTxDate = tx.date;
-                    try {
-                      formattedTxDate = format(new Date(tx.date + 'T00:00:00'), 'MMM d, yyyy');
-                    } catch (e) {
-                      console.error('Failed to format date:', tx.date, e);
-                    }
-
-                    return (
-                      <div key={tx.id} className="transaction-item">
-                        <div className="item-left">
-                          <div 
-                            className="category-icon-indicator"
-                            style={{
-                              backgroundColor: `${CATEGORY_COLORS[tx.category]}1a`,
-                              color: CATEGORY_COLORS[tx.category],
-                              border: `1px solid ${CATEGORY_COLORS[tx.category]}26`,
-                              fontSize: '1.2rem'
-                            }}
-                          >
-                            {CATEGORY_EMOJIS[tx.category] || '📦'}
-                          </div>
-                          
-                          <div className="item-details">
-                            <h4>{tx.description}</h4>
-                            <div className="item-meta">
-                              <span>{formattedTxDate}</span>
-                              <span>•</span>
-                              <span 
-                                className="badge"
-                                style={{
-                                  backgroundColor: `${CATEGORY_COLORS[tx.category]}22`,
-                                  color: CATEGORY_COLORS[tx.category],
-                                  border: `1px solid ${CATEGORY_COLORS[tx.category]}33`
-                                }}
-                              >
-                                {tx.category}
-                              </span>
-                              {card && (
-                                <>
-                                  <span>•</span>
-                                  <span className="transaction-card-badge">
-                                    💳 {card.name}
-                                  </span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="item-right">
-                          <span className={`item-amount ${tx.type}`}>
-                            {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount)}
-                          </span>
-                          <button 
-                            className="delete-btn" 
-                            onClick={() => handleDeleteTransaction(tx.id)}
-                            title="Delete record"
-                            disabled={txLoading}
-                          >
-                            <Trash2 size={15} />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="empty-state">
-                  <Wallet size={40} className="empty-icon text-muted" />
-                  <p>No matching transactions found.</p>
-                  {(searchTerm || filterCategory !== 'All' || filterType !== 'All') ? (
-                    <button
-                      onClick={() => {
-                        setSearchTerm('');
-                        setFilterCategory('All');
-                        setFilterType('All');
-                      }}
-                      className="clear-filters-link"
-                    >
-                      Clear active filters
-                    </button>
-                  ) : (
-                    <button onClick={() => setShowMobileTxForm(true)} className="add-btn mt-button">Add Transaction</button>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
+          <TransactionLog
+            creditCards={creditCards}
+            txLoading={txLoading}
+            txDesc={txDesc}
+            setTxDesc={setTxDesc}
+            txAmount={txAmount}
+            setTxAmount={setTxAmount}
+            txType={txType}
+            txCategory={txCategory}
+            setTxCategory={setTxCategory}
+            txDate={txDate}
+            setTxDate={setTxDate}
+            txCardId={txCardId}
+            setTxCardId={setTxCardId}
+            txErrors={txErrors}
+            handleSubmitTransaction={handleSubmitTransaction}
+            handleDeleteTransaction={handleDeleteTransaction}
+            handleTypeChange={handleTypeChange}
+            successFlash={successFlash}
+            showMobileTxForm={showMobileTxForm}
+            setShowMobileTxForm={setShowMobileTxForm}
+            searchTerm={searchTerm}
+            setSearchTerm={setSearchTerm}
+            filterType={filterType}
+            setFilterType={setFilterType}
+            filterCategory={filterCategory}
+            setFilterCategory={setFilterCategory}
+            filteredTransactions={filteredTransactions}
+            CATEGORIES={CATEGORIES}
+            CATEGORY_EMOJIS={CATEGORY_EMOJIS}
+            CATEGORY_COLORS={CATEGORY_COLORS}
+            formatCurrency={formatCurrency}
+            setShowImportModal={setShowImportModal}
+          />
         </section>
       </div>
 
