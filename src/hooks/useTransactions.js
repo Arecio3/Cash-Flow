@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { useOnlineStatus } from './useOnlineStatus';
 
 const mapToUI = (dbTx) => ({
   id: dbTx.id,
@@ -23,10 +24,11 @@ const mapToDB = (uiTx, userId) => {
   return dbObj;
 };
 
-export function useTransactions(userId) {
+export function useTransactions(userId, onStatusChange) {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const { isOnline } = useOnlineStatus();
 
   useEffect(() => {
     if (!userId) {
@@ -35,6 +37,8 @@ export function useTransactions(userId) {
       }, 0);
       return;
     }
+
+    let channel = null;
 
     const fetchTransactions = async () => {
       setLoading(true);
@@ -57,14 +61,59 @@ export function useTransactions(userId) {
     };
 
     fetchTransactions();
-  }, [userId]);
+
+    if (isOnline) {
+      channel = supabase
+        .channel(`realtime:transactions:${userId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'transactions',
+            filter: `user_id=eq.${userId}`
+          },
+          (payload) => {
+            const { eventType, new: newRow, old: oldRow } = payload;
+            if (eventType === 'INSERT') {
+              const uiTx = mapToUI(newRow);
+              setTransactions((prev) => {
+                if (prev.some((t) => t.id === uiTx.id)) return prev;
+                return [uiTx, ...prev];
+              });
+            } else if (eventType === 'UPDATE') {
+              const uiTx = mapToUI(newRow);
+              setTransactions((prev) =>
+                prev.map((t) => (t.id === uiTx.id ? uiTx : t))
+              );
+            } else if (eventType === 'DELETE') {
+              setTransactions((prev) => prev.filter((t) => t.id !== oldRow.id));
+            }
+          }
+        )
+        .subscribe((status) => {
+          if (onStatusChange) {
+            onStatusChange(status === 'SUBSCRIBED' ? 'connected' : 'reconnecting');
+          }
+        });
+    } else {
+      if (onStatusChange) {
+        onStatusChange('reconnecting');
+      }
+    }
+
+    return () => {
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
+    };
+  }, [userId, isOnline, onStatusChange]);
 
   const add = async (newTx) => {
     if (!userId) return null;
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const optimisticItem = { ...newTx, id: tempId };
 
-    // Update locally first
     setTransactions((prev) => [optimisticItem, ...prev]);
 
     try {
@@ -77,14 +126,12 @@ export function useTransactions(userId) {
 
       if (dbError) throw dbError;
 
-      // Swap temp ID with the real DB record
       setTransactions((prev) =>
         prev.map((t) => (t.id === tempId ? mapToUI(data) : t))
       );
       return mapToUI(data);
     } catch (err) {
       console.error('Error adding transaction:', err);
-      // Revert optimistic update
       setTransactions((prev) => prev.filter((t) => t.id !== tempId));
       throw err;
     }
@@ -94,7 +141,6 @@ export function useTransactions(userId) {
     if (!userId) return;
     const previousState = [...transactions];
 
-    // Update locally first
     setTransactions((prev) =>
       prev.map((t) => (t.id === id ? { ...t, ...updates } : t))
     );
@@ -109,7 +155,6 @@ export function useTransactions(userId) {
       if (dbError) throw dbError;
     } catch (err) {
       console.error('Error updating transaction:', err);
-      // Revert
       setTransactions(previousState);
       throw err;
     }
@@ -119,7 +164,6 @@ export function useTransactions(userId) {
     if (!userId) return;
     const previousState = [...transactions];
 
-    // Remove locally first
     setTransactions((prev) => prev.filter((t) => t.id !== id));
 
     try {
@@ -131,7 +175,6 @@ export function useTransactions(userId) {
       if (dbError) throw dbError;
     } catch (err) {
       console.error('Error deleting transaction:', err);
-      // Revert
       setTransactions(previousState);
       throw err;
     }

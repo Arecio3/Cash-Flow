@@ -13,24 +13,17 @@ import {
   Sparkles,
   RefreshCw,
   Check,
-  ChevronLeft,
-  ChevronRight,
   CreditCard as CreditCardIcon,
   X,
   Target,
-  Bookmark,
-  LogOut
+  LogOut,
+  Edit2,
+  FileSpreadsheet,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
-import { 
-  ResponsiveContainer, 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  Tooltip, 
-  CartesianGrid,
-  Cell
-} from 'recharts';
+
+import { format } from 'date-fns';
 
 // Supabase integrations
 import { supabase } from './lib/supabase';
@@ -44,6 +37,9 @@ import { hasLocalData, migrateLocalData } from './lib/migrate';
 import { useToast } from './hooks/useToast';
 import { OfflineBanner } from './components/OfflineBanner';
 import { InstallPrompt } from './components/InstallPrompt';
+
+import { ImportModal } from './components/ImportModal';
+import { Dashboard } from './components/Dashboard';
 
 // Local storage key for persistent logs (e.g. recurring bill paid statuses)
 const storage = {
@@ -117,9 +113,9 @@ const getSampleData = () => {
   const yyyymm = `${year}-${month}`;
 
   const defaultCards = [
-    { id: 'cc1', name: 'Chase Freedom', issuer: 'Chase', balance: 0, limit: 5000, cashback: 1.5, statementClose: '15th' },
-    { id: 'cc2', name: 'Amex Gold', issuer: 'Amex', balance: 3000, limit: 10000, cashback: 2.0, statementClose: '20th' },
-    { id: 'cc3', name: 'Capital One Venture', issuer: 'Capital One', balance: 6600, limit: 12000, cashback: 2.0, statementClose: '28th' }
+    { id: 'cc1', name: 'Chase Freedom', issuer: 'Chase', balance: 0, limit: 5000, cashback: 1.5, statementClose: '15th', notes: 'groceries' },
+    { id: 'cc2', name: 'Amex Gold', issuer: 'Amex', balance: 3000, limit: 10000, cashback: 2.0, statementClose: '20th', notes: 'dining' },
+    { id: 'cc3', name: 'Capital One Venture', issuer: 'Capital One', balance: 6600, limit: 12000, cashback: 2.0, statementClose: '28th', notes: 'travel' }
   ];
 
   const defaultBills = [
@@ -151,51 +147,61 @@ const getSampleData = () => {
   return { cards: defaultCards, bills: defaultBills, goals: defaultGoals, transactions: defaultTransactions };
 };
 
-const CustomWaterfallTooltip = ({ active, payload }) => {
-  if (active && payload && payload.length) {
-    const data = payload[0].payload;
-    return (
-      <div className="custom-recharts-tooltip">
-        <p className="custom-tooltip-label">{data.name}</p>
-        <p className="custom-tooltip-value" style={{ color: data.color }}>
-          Value: ${data.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-        </p>
-      </div>
-    );
-  }
-  return null;
-};
 
 function App() {
   // --- Auth state ---
   const { user, loading: authLoading, signOut } = useAuth();
 
+  // --- Real-time Status ---
+  const [realtimeStatus, setRealtimeStatus] = useState('connected');
+
   // --- Supabase custom hooks for data ---
-  const { transactions, add: addTx, remove: removeTx, loading: txLoading } = useTransactions(user?.id);
-  const { creditCards, update: updateCard, add: addCard, remove: removeCard, loading: cardLoading } = useCreditCards(user?.id);
-  const { bills, update: updateBill, add: addBill, remove: removeBill, loading: billsLoading } = useBills(user?.id);
-  const { investmentGoals, update: updateGoal, add: addGoal, remove: removeGoal, loading: goalsLoading } = useInvestmentGoals(user?.id);
+  const { transactions, add: addTx, remove: removeTx, loading: txLoading } = useTransactions(user?.id, setRealtimeStatus);
+  const { creditCards, update: updateCard, add: addCard, remove: removeCard, loading: cardLoading } = useCreditCards(user?.id, setRealtimeStatus);
+  const { bills, update: updateBill, add: addBill, remove: removeBill, loading: billsLoading } = useBills(user?.id, setRealtimeStatus);
+  const { investmentGoals, update: updateGoal, add: addGoal, remove: removeGoal, loading: goalsLoading } = useInvestmentGoals(user?.id, setRealtimeStatus);
 
   // --- App View States ---
   const { showToast } = useToast();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [showMigrationBanner, setShowMigrationBanner] = useState(false);
   const [showMobileTxForm, setShowMobileTxForm] = useState(false);
+  
+  // Mobile Navigation state (0: Dashboard, 1: Cards, 2: Calendar, 3: Goals, 4: Log/Import)
+  const [activeTab, setActiveTab] = useState(0);
+
+  // Viewport resize tracker for mobile charts
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // --- Modals / Interaction States ---
   const [selectedCalendarDay, setSelectedCalendarDay] = useState(null);
   const [showAddCard, setShowAddCard] = useState(false);
+  const [editingCard, setEditingCard] = useState(null);
   const [showAddGoal, setShowAddGoal] = useState(false);
   const [payingCardId, setPayingCardId] = useState(null);
   const [paymentAmount, setPaymentAmount] = useState('');
+  
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [showSettingsDropdown, setShowSettingsDropdown] = useState(false);
 
-  // --- Add Card Form States ---
+  // Collapsible / Inline Notes card state
+  const [openCardNotes, setOpenCardNotes] = useState({});
+  const [inlineEditingCardNotesId, setInlineEditingCardNotesId] = useState(null);
+  const [inlineNotesValue, setInlineNotesValue] = useState('');
+
+  // --- Add/Edit Card Form States ---
   const [newCardName, setNewCardName] = useState('');
   const [newCardLimit, setNewCardLimit] = useState('');
   const [newCardBalance, setNewCardBalance] = useState('');
   const [newCardIssuer, setNewCardIssuer] = useState('Chase');
   const [newCardCashback, setNewCardCashback] = useState('1.5');
   const [newCardCloseDay, setNewCardCloseDay] = useState('15th');
+  const [newCardNotes, setNewCardNotes] = useState('');
   const [cardErrors, setCardErrors] = useState({});
 
   // --- Add Goal Form States ---
@@ -261,6 +267,59 @@ function App() {
     showToast(message, toastType === 'delete' ? 'error' : toastType);
   };
 
+  // Pre-populate Edit Card form
+  const handleOpenEditCard = (card) => {
+    setEditingCard(card);
+    setNewCardName(card.name);
+    setNewCardIssuer(card.issuer);
+    setNewCardLimit(card.limit.toString());
+    setNewCardBalance(card.balance.toString());
+    setNewCardCashback(card.cashback.toString());
+    setNewCardCloseDay(card.statementClose);
+    setNewCardNotes(card.notes || '');
+    setCardErrors({});
+    setShowAddCard(true);
+  };
+
+  // Close Add/Edit Card modal
+  const handleCloseCardForm = () => {
+    setEditingCard(null);
+    setNewCardName('');
+    setNewCardLimit('');
+    setNewCardBalance('');
+    setNewCardIssuer('Chase');
+    setNewCardCashback('1.5');
+    setNewCardCloseDay('15th');
+    setNewCardNotes('');
+    setCardErrors({});
+    setShowAddCard(false);
+  };
+
+  // Inline notes edit activation
+  const handleStartInlineNotesEdit = (card) => {
+    setInlineEditingCardNotesId(card.id);
+    setInlineNotesValue(card.notes || '');
+  };
+
+  // Inline notes save
+  const handleSaveInlineNotes = async (cardId) => {
+    try {
+      await updateCard(cardId, { notes: inlineNotesValue });
+      addToast('Notes updated!');
+      setInlineEditingCardNotesId(null);
+    } catch {
+      addToast('Failed to update notes.', 'delete');
+    }
+  };
+
+  // Toggle notes collapsible visibility
+  const toggleNotesCollapse = (cardId) => {
+    setOpenCardNotes(prev => ({
+      ...prev,
+      [cardId]: !prev[cardId]
+    }));
+  };
+
   // --- Auto-Charge Pending Bills on Load (Supabase integration) ---
   useEffect(() => {
     if (!user || bills.length === 0 || creditCards.length === 0) return;
@@ -293,7 +352,6 @@ function App() {
               date: b.date,
               cardId: b.cardId
             });
-            // Update single bill paid state locally
             updateBill(b.id, { paid: true });
           }
         }
@@ -337,14 +395,12 @@ function App() {
     if (changed) {
       setTimeout(async () => {
         try {
-          // Perform card balance updates
           for (const cardId of Object.keys(cardsToUpdate)) {
             const card = creditCards.find((c) => c.id === cardId);
             if (card) {
               await updateCard(cardId, { balance: card.balance + cardsToUpdate[cardId] });
             }
           }
-          // Insert transactions
           for (const tx of txToInsert) {
             await addTx(tx);
           }
@@ -446,44 +502,24 @@ function App() {
     return creditCards.reduce((sum, card) => sum + (card.balance * ((parseFloat(card.cashback) || 0) / 100)), 0);
   }, [creditCards]);
 
-  // --- 1. Waterfall Chart Data Calculations ---
-  const waterfallData = useMemo(() => {
-    const income = monthlySummary.income;
-    const billsVal = monthlyBillsTotal;
-    const payoffs = monthlyCardPayoffsTotal;
-    
-    const freeCash = Math.max(0, income - billsVal - payoffs);
-    const investTotal = investmentGoals.reduce((sum, g) => sum + (parseFloat(g.contribution) || 0), 0);
-    const investClamped = Math.min(freeCash, investTotal);
-    const spendVal = Math.max(0, freeCash - investClamped);
 
-    return [
-      { name: '1. Paycheck (Income)', range: [0, income], value: income, color: '#10b981' },
-      { name: '2. Bills (Charged)', range: [Math.max(0, income - billsVal), income], value: billsVal, color: '#ef4444' },
-      { name: '3. CC Payoffs', range: [Math.max(0, income - billsVal - payoffs), Math.max(0, income - billsVal)], value: payoffs, color: '#f43f5e' },
-      { name: '4. Free Cash', range: [0, freeCash], value: freeCash, color: '#a855f7' },
-      { name: '5. Invest Target', range: [Math.max(0, freeCash - investClamped), freeCash], value: investClamped, color: '#14b8a6' },
-      { name: '6. Spend Envelope', range: [0, spendVal], value: spendVal, color: '#3b82f6' }
-    ];
-  }, [monthlySummary, monthlyBillsTotal, monthlyCardPayoffsTotal, investmentGoals]);
 
-  // --- 4. Investment Goals Completion Dates ---
+  // --- Investment Goals Completion Dates ---
   const getProjectedDateStr = (goal) => {
     if (goal.invested >= goal.target) return 'Completed!';
     if (!goal.contribution || goal.contribution <= 0) return 'N/A';
     const monthsNeeded = Math.ceil((goal.target - goal.invested) / goal.contribution);
     const dateObj = new Date();
     dateObj.setMonth(dateObj.getMonth() + monthsNeeded);
-    return dateObj.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    return format(dateObj, 'MMM yyyy');
   };
 
-  // --- 5. Spend Envelope Tracker Calculations ---
+  // --- Spend Envelope Tracker Calculations ---
   const spendEnvelopeMetrics = useMemo(() => {
     const monthlyBillsVal = monthlyBillsTotal;
     const investTotal = investmentGoals.reduce((sum, g) => sum + (parseFloat(g.contribution) || 0), 0);
     const totalBudget = Math.max(0, monthlySummary.income - monthlyBillsVal - investTotal);
 
-    // Discretionary spent: Expense transactions not card payoffs & not bills
     const spentDiscretionary = transactions.reduce((sum, tx) => {
       const txDateObj = new Date(tx.date + 'T00:00:00');
       if (txDateObj.getFullYear() === currentYear && txDateObj.getMonth() === currentMonth) {
@@ -527,19 +563,14 @@ function App() {
     return spendEnvelopeMetrics.remaining / daysLeftInMonth;
   }, [spendEnvelopeMetrics.remaining, daysLeftInMonth]);
 
-  // Envelope Color indicator
-  const spendColorClass = useMemo(() => {
-    if (spendEnvelopeMetrics.percent > 50) return 'util-green';
-    if (spendEnvelopeMetrics.percent >= 15) return 'util-amber';
-    return 'util-red';
-  }, [spendEnvelopeMetrics.percent]);
+
 
   const calendarDays = useMemo(() => {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
 
     const firstDayInstance = new Date(year, month, 1);
-    const startDayOfWeek = firstDayInstance.getDay(); // 0 (Sun) to 6 (Sat)
+    const startDayOfWeek = firstDayInstance.getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const prevMonthDays = new Date(year, month, 0).getDate();
 
@@ -625,30 +656,30 @@ function App() {
     }
 
     try {
-      const newCard = {
+      const cardPayload = {
         name: newCardName.trim(),
         issuer: newCardIssuer,
         limit: parsedLimit,
         balance: parsedBalance,
         cashback: parsedCashback,
-        statementClose: newCardCloseDay
+        statementClose: newCardCloseDay,
+        notes: newCardNotes.trim()
       };
 
-      await addCard(newCard);
-      addToast(`Card "${newCard.name}" added successfully!`);
+      if (editingCard) {
+        // Edit flow
+        await updateCard(editingCard.id, cardPayload);
+        addToast(`Card "${cardPayload.name}" updated successfully!`);
+      } else {
+        // Add flow
+        await addCard(cardPayload);
+        addToast(`Card "${cardPayload.name}" added successfully!`);
+      }
 
-      // Reset Form
-      setNewCardName('');
-      setNewCardLimit('');
-      setNewCardBalance('');
-      setNewCardIssuer('Chase');
-      setNewCardCashback('1.5');
-      setNewCardCloseDay('15th');
-      setCardErrors({});
-      setShowAddCard(false);
+      handleCloseCardForm();
     } catch (err) {
-      console.error('Failed to add credit card:', err);
-      addToast('Failed to add credit card.', 'delete');
+      console.error('Failed to save credit card:', err);
+      addToast('Failed to save credit card.', 'delete');
     }
   };
 
@@ -676,15 +707,13 @@ function App() {
     if (!card) return;
 
     if (amountToPay > card.balance) {
-      addToast(`Payment amount exceeds the card balance of $${card.balance.toFixed(2)}`, 'delete');
+      addToast(`Payment amount exceeds the card balance of ${formatCurrency(card.balance)}`, 'delete');
       return;
     }
 
     try {
-      // Reduce Card Balance
       await updateCard(payingCardId, { balance: Math.max(0, card.balance - amountToPay) });
 
-      // Create Expense Transaction
       const todayStr = new Date().toISOString().split('T')[0];
       const newTx = {
         description: `CC Payoff: ${card.name}`,
@@ -696,9 +725,8 @@ function App() {
       };
 
       await addTx(newTx);
-      addToast(`Logged card payment of $${amountToPay.toFixed(2)}!`);
+      addToast(`Logged card payment of ${formatCurrency(amountToPay)}!`);
 
-      // Reset payment states
       setPayingCardId(null);
       setPaymentAmount('');
     } catch (err) {
@@ -738,7 +766,6 @@ function App() {
       await addGoal(newGoal);
       addToast(`Investment Goal "${newGoal.name}" saved!`);
 
-      // Reset Form
       setNewGoalName('');
       setNewGoalTarget('');
       setNewGoalContribution('');
@@ -755,7 +782,7 @@ function App() {
     try {
       const goalToDelete = investmentGoals.find((g) => g.id === id);
       await removeGoal(id);
-      addToast(`Deleted investment goal "${goalToDelete?.name}"`, 'delete');
+      addToast(`Deleted goal "${goalToDelete?.name}"`, 'delete');
     } catch (err) {
       console.error('Failed to delete goal:', err);
       addToast('Failed to delete goal.', 'delete');
@@ -766,16 +793,13 @@ function App() {
     const goal = investmentGoals.find((g) => g.id === goalId);
     if (!goal) return;
 
-    const investAmt = goal.contribution;
-
     try {
-      await updateGoal(goalId, { invested: Math.min(goal.target, goal.invested + investAmt) });
+      await updateGoal(goalId, { invested: goal.invested + goal.contribution });
 
-      // Create Expense Transaction
       const todayStr = new Date().toISOString().split('T')[0];
       const newTx = {
-        description: `Invested to ${goal.name}`,
-        amount: investAmt,
+        description: `Invest Contribution: ${goal.name}`,
+        amount: goal.contribution,
         type: 'expense',
         category: 'Other',
         date: todayStr,
@@ -783,10 +807,10 @@ function App() {
       };
 
       await addTx(newTx);
-      addToast(`Invested $${investAmt.toFixed(2)} to "${goal.name}"!`);
+      addToast(`Logged investment of ${formatCurrency(goal.contribution)} into ${goal.name}!`);
     } catch (err) {
       console.error('Failed to log quick investment:', err);
-      addToast('Failed to log quick investment.', 'delete');
+      addToast('Failed to log investment.', 'delete');
     }
   };
 
@@ -796,8 +820,8 @@ function App() {
     const errors = {};
     if (!newBillName.trim()) errors.name = 'Bill name is required';
 
-    const amt = parseFloat(newBillAmount);
-    if (isNaN(amt) || amt <= 0) errors.amount = 'Amount must be positive';
+    const parsedAmt = parseFloat(newBillAmount);
+    if (isNaN(parsedAmt) || parsedAmt <= 0) errors.amount = 'Amount must be positive';
 
     if (Object.keys(errors).length > 0) {
       setBillErrors(errors);
@@ -807,107 +831,152 @@ function App() {
     try {
       const newBill = {
         name: newBillName.trim(),
-        amount: amt,
+        amount: parsedAmt,
         category: newBillCategory,
-        date: selectedCalendarDay,
-        paid: false,
         cardId: newBillCardId || null,
-        recurring: newBillRecurring
+        date: selectedCalendarDay,
+        recurring: newBillRecurring,
+        paid: false
       };
 
       await addBill(newBill);
-      addToast(`Added bill: "${newBill.name}" for ${selectedCalendarDay}!`);
+      addToast(`Bill "${newBill.name}" scheduled!`);
 
-      // Reset Form
       setNewBillName('');
       setNewBillAmount('');
+      setNewBillCategory('Utilities');
+      setNewBillCardId(creditCards[0]?.id || '');
+      setNewBillRecurring(true);
       setBillErrors({});
     } catch (err) {
-      console.error('Failed to add bill schedule:', err);
-      addToast('Failed to add bill schedule.', 'delete');
+      console.error('Failed to add bill:', err);
+      addToast('Failed to schedule bill.', 'delete');
     }
   };
 
-  const handleToggleBillPaid = async (billId, instanceDate) => {
+  const handleDeleteBill = async (id) => {
+    try {
+      const billToDelete = bills.find((b) => b.id === id);
+      await removeBill(id);
+      addToast(`Deleted bill "${billToDelete?.name}"`, 'delete');
+    } catch (err) {
+      console.error('Failed to delete bill:', err);
+      addToast('Failed to delete bill.', 'delete');
+    }
+  };
+
+  const handleToggleBillPaid = async (billId, dateStr) => {
     const bill = bills.find((b) => b.id === billId);
     if (!bill) return;
 
-    const key = `${bill.id}-${instanceDate}`;
-    const isCurrentlyPaid = bill.recurring ? paidBillsLog[key] : bill.paid;
-    const newPaidStatus = !isCurrentlyPaid;
+    if (bill.recurring) {
+      const logKey = `${billId}-${dateStr}`;
+      const isCurrentlyPaid = paidBillsLog[logKey] || false;
+      const nextPaidState = !isCurrentlyPaid;
 
-    try {
-      if (bill.recurring) {
-        setPaidBillsLog((prev) => ({ ...prev, [key]: newPaidStatus }));
-      } else {
-        await updateBill(billId, { paid: newPaidStatus });
-      }
+      try {
+        setPaidBillsLog((prev) => ({ ...prev, [logKey]: nextPaidState }));
 
-      if (newPaidStatus) {
-        if (bill.cardId) {
-          const card = creditCards.find((c) => c.id === bill.cardId);
-          if (card) {
-            await updateCard(bill.cardId, { balance: card.balance + bill.amount });
+        if (nextPaidState) {
+          if (bill.cardId) {
+            const card = creditCards.find((c) => c.id === bill.cardId);
+            if (card) {
+              await updateCard(bill.cardId, { balance: card.balance + bill.amount });
+            }
           }
-        }
-
-        const newTx = {
-          description: `Paid Bill: ${bill.name}`,
-          amount: bill.amount,
-          type: 'expense',
-          category: bill.category,
-          date: instanceDate,
-          cardId: bill.cardId || null
-        };
-
-        await addTx(newTx);
-        addToast(`Bill "${bill.name}" marked paid & charged!`);
-      } else {
-        if (bill.cardId) {
-          const card = creditCards.find((c) => c.id === bill.cardId);
-          if (card) {
-            await updateCard(bill.cardId, { balance: Math.max(0, card.balance - bill.amount) });
+          const newTx = {
+            description: `Paid Bill: ${bill.name}`,
+            amount: bill.amount,
+            type: 'expense',
+            category: bill.category,
+            date: dateStr,
+            cardId: bill.cardId
+          };
+          await addTx(newTx);
+          addToast(`Marked ${bill.name} as paid!`);
+        } else {
+          // Revert payoff logic
+          if (bill.cardId) {
+            const card = creditCards.find((c) => c.id === bill.cardId);
+            if (card) {
+              await updateCard(bill.cardId, { balance: Math.max(0, card.balance - bill.amount) });
+            }
           }
+          const matchingTx = transactions.find(
+            (t) => t.date === dateStr && t.description === `Paid Bill: ${bill.name}`
+          );
+          if (matchingTx) {
+            await removeTx(matchingTx.id);
+          }
+          addToast(`Marked ${bill.name} as unpaid.`, 'delete');
         }
-
-        const txToDelete = transactions.find((t) => t.description === `Paid Bill: ${bill.name}` && t.amount === bill.amount && t.date === instanceDate);
-        if (txToDelete) {
-          await removeTx(txToDelete.id);
-        }
-        addToast(`Bill "${bill.name}" marked unpaid.`);
+      } catch (err) {
+        console.error('Failed to update recurring bill status:', err);
+        addToast('Failed to update bill.', 'delete');
       }
-    } catch (err) {
-      console.error('Error toggling bill status:', err);
-      addToast('Error toggling bill status.', 'delete');
+    } else {
+      // Non-recurring bill
+      const nextPaidState = !bill.paid;
+      try {
+        await updateBill(billId, { paid: nextPaidState });
+
+        if (nextPaidState) {
+          if (bill.cardId) {
+            const card = creditCards.find((c) => c.id === bill.cardId);
+            if (card) {
+              await updateCard(bill.cardId, { balance: card.balance + bill.amount });
+            }
+          }
+          const newTx = {
+            description: `Paid Bill: ${bill.name}`,
+            amount: bill.amount,
+            type: 'expense',
+            category: bill.category,
+            date: dateStr,
+            cardId: bill.cardId
+          };
+          await addTx(newTx);
+          addToast(`Marked ${bill.name} as paid!`);
+        } else {
+          if (bill.cardId) {
+            const card = creditCards.find((c) => c.id === bill.cardId);
+            if (card) {
+              await updateCard(bill.cardId, { balance: Math.max(0, card.balance - bill.amount) });
+            }
+          }
+          const matchingTx = transactions.find(
+            (t) => t.date === dateStr && t.description === `Paid Bill: ${bill.name}`
+          );
+          if (matchingTx) {
+            await removeTx(matchingTx.id);
+          }
+          addToast(`Marked ${bill.name} as unpaid.`, 'delete');
+        }
+      } catch (err) {
+        console.error('Failed to update bill status:', err);
+        addToast('Failed to update bill.', 'delete');
+      }
     }
   };
 
-  const handleDeleteBill = async (billId) => {
-    try {
-      const billToDelete = bills.find((b) => b.id === billId);
-      await removeBill(billId);
-      addToast(`Deleted bill "${billToDelete?.name}"`, 'delete');
-    } catch (err) {
-      console.error('Failed to delete scheduled bill:', err);
-      addToast('Failed to delete scheduled bill.', 'delete');
+  // --- Transaction Action Handlers ---
+  const handleTypeChange = (type) => {
+    setTxType(type);
+    if (type === 'income') {
+      setTxCategory('Income');
+      setTxCardId('');
+    } else {
+      setTxCategory('Food');
     }
-  };
-
-  // --- Transaction Log Action Handlers ---
-  const handleTypeChange = (newType) => {
-    setTxType(newType);
-    setTxCategory(newType === 'income' ? 'Income' : 'Food');
   };
 
   const handleSubmitTransaction = async (e) => {
     e.preventDefault();
     const errors = {};
-
     if (!txDesc.trim()) errors.description = 'Description is required';
-    
+
     const parsedAmt = parseFloat(txAmount);
     if (isNaN(parsedAmt) || parsedAmt <= 0) errors.amount = 'Amount must be positive';
-
     if (!txDate) errors.date = 'Date is required';
 
     if (Object.keys(errors).length > 0) {
@@ -915,90 +984,116 @@ function App() {
       return;
     }
 
-    const assignedCardId = txType === 'expense' && txCardId ? txCardId : null;
-
     try {
       const newTx = {
         description: txDesc.trim(),
         amount: parsedAmt,
         type: txType,
-        category: txType === 'income' ? 'Income' : txCategory,
+        category: txCategory,
         date: txDate,
-        cardId: assignedCardId
+        cardId: txType === 'expense' ? (txCardId || null) : null
       };
 
-      if (assignedCardId) {
-        const card = creditCards.find((c) => c.id === assignedCardId);
+      // Perform card balance addition if expense routed to credit card
+      if (txType === 'expense' && txCardId) {
+        const card = creditCards.find((c) => c.id === txCardId);
         if (card) {
-          await updateCard(assignedCardId, { balance: card.balance + parsedAmt });
+          await updateCard(txCardId, { balance: card.balance + parsedAmt });
         }
       }
 
       await addTx(newTx);
-      addToast('Transaction recorded successfully!');
+      setSuccessFlash(true);
+      setTimeout(() => setSuccessFlash(false), 800);
+      addToast('Transaction logged successfully!');
 
       setTxDesc('');
       setTxAmount('');
+      setTxCardId('');
       setTxErrors({});
-      setSuccessFlash(true);
-      setTimeout(() => setSuccessFlash(false), 800);
       setShowMobileTxForm(false);
     } catch (err) {
-      console.error('Failed to save transaction:', err);
-      addToast('Failed to save transaction.', 'delete');
+      console.error('Failed to log transaction:', err);
+      addToast('Failed to log transaction.', 'delete');
     }
   };
 
   const handleDeleteTransaction = async (id) => {
-    const txToDelete = transactions.find((t) => t.id === id);
-    if (!txToDelete) return;
-
     try {
-      if (txToDelete.type === 'expense' && txToDelete.cardId) {
-        const card = creditCards.find((c) => c.id === txToDelete.cardId);
+      const tx = transactions.find((t) => t.id === id);
+      if (tx && tx.type === 'expense' && tx.cardId) {
+        const card = creditCards.find((c) => c.id === tx.cardId);
         if (card) {
-          await updateCard(txToDelete.cardId, { balance: Math.max(0, card.balance - txToDelete.amount) });
+          await updateCard(tx.cardId, { balance: Math.max(0, card.balance - tx.amount) });
         }
       }
 
       await removeTx(id);
-      addToast(`Deleted "${txToDelete.description}"`, 'delete');
+      addToast('Transaction record deleted.', 'delete');
     } catch (err) {
       console.error('Failed to delete transaction:', err);
       addToast('Failed to delete transaction.', 'delete');
     }
   };
 
-  // --- Reset Preset Data on Supabase ---
+  // Bulk confirmation insertions from statement parser
+  const handleBulkImportTransactions = async (selectedRows) => {
+    try {
+      for (const row of selectedRows) {
+        const newTx = {
+          description: row.description,
+          amount: row.amount,
+          type: row.type,
+          category: row.category,
+          date: row.date,
+          cardId: row.cardId || null
+        };
+
+        // If card linked, add amount to card balance
+        if (row.type === 'expense' && row.cardId) {
+          const card = creditCards.find(c => c.id === row.cardId);
+          if (card) {
+            await updateCard(row.cardId, { balance: card.balance + row.amount });
+          }
+        }
+
+        await addTx(newTx);
+      }
+    } catch (err) {
+      console.error('Bulk insert failed:', err);
+      throw err;
+    }
+  };
+
+  // Preset resetting
   const handleResetAllData = async () => {
-    if (window.confirm('Are you sure you want to reset all data back to original sample presets?')) {
+    if (window.confirm('WARNING: This will purge your Supabase tables and restore preset sample records. Continue?')) {
       try {
-        // Clear User Records
+        addToast('Resetting database preset...');
+        
         await supabase.from('transactions').delete().eq('user_id', user.id);
         await supabase.from('bills').delete().eq('user_id', user.id);
         await supabase.from('credit_cards').delete().eq('user_id', user.id);
         await supabase.from('investment_goals').delete().eq('user_id', user.id);
 
-        // Map and Insert Sample Data
         const sample = getSampleData();
         const cardMap = {};
 
-        const cardsToInsert = sample.cards.map((c) => {
-          const newId = crypto.randomUUID();
-          cardMap[c.id] = newId;
-          return {
-            id: newId,
+        for (const c of sample.cards) {
+          const newCardId = crypto.randomUUID();
+          cardMap[c.id] = newCardId;
+          await supabase.from('credit_cards').insert({
+            id: newCardId,
             user_id: user.id,
             name: c.name,
             issuer: c.issuer,
             credit_limit: c.limit,
             current_balance: c.balance,
             statement_due_date: c.statementClose,
-            apr: 0,
-            cashback_rate: c.cashback
-          };
-        });
-        await supabase.from('credit_cards').insert(cardsToInsert);
+            cashback_rate: c.cashback,
+            notes: c.notes
+          });
+        }
 
         const billsToInsert = sample.bills.map((b) => ({
           user_id: user.id,
@@ -1061,6 +1156,31 @@ function App() {
 
   return (
     <div className="dashboard-container">
+      {/* Slim Top Bar (52px) */}
+      <div className="slim-top-bar">
+        <div className="month-selector-wrapper">
+          <button onClick={handlePrevMonth} className="summary-nav-btn" aria-label="Previous Month" type="button">
+            <ChevronLeft size={16} />
+          </button>
+          <div className="summary-month-label">
+            {currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+          </div>
+          <button onClick={handleNextMonth} className="summary-nav-btn" aria-label="Next Month" type="button">
+            <ChevronRight size={16} />
+          </button>
+        </div>
+        <div className="slim-top-bar-center"></div>
+        <div className="slim-top-bar-right">
+          <button 
+            onClick={() => setShowSettingsDropdown(!showSettingsDropdown)} 
+            className="avatar-circle-btn"
+            type="button"
+          >
+            {user?.email ? user.email.substring(0, 2).toUpperCase() : 'U'}
+          </button>
+        </div>
+      </div>
+
       {/* Offline Banner & PWA Install Sheet */}
       <OfflineBanner />
       <InstallPrompt />
@@ -1079,113 +1199,141 @@ function App() {
         </div>
       )}
 
-      {/* Top Header */}
+      {/* Redesigned Nav Header */}
       <header className="dashboard-header">
         <div className="brand">
           <div className="brand-icon">
             <Wallet size={24} />
           </div>
           <div className="brand-text">
-            <h1>CASH FLOW</h1>
+            <div className="brand-logo-area" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <h1>CASH FLOW</h1>
+              <span className={`logo-live-dot ${realtimeStatus === 'connected' ? 'live' : 'reconnecting'}`} title={realtimeStatus === 'connected' ? 'Connected to live sync' : 'Reconnecting...'}></span>
+            </div>
             <p>CLOUD FINANCE ENGINE</p>
           </div>
         </div>
-        
-        {/* Month Navigation */}
-        <div className="month-navigator">
-          <button onClick={handlePrevMonth} className="nav-btn" title="Previous Month">
-            <ChevronLeft size={20} />
+
+        {/* Desktop Navigation Tabs */}
+        <div className="desktop-nav-tabs">
+          <button 
+            onClick={() => { setActiveTab(0); setShowSettingsDropdown(false); }} 
+            className={`desktop-nav-btn ${activeTab === 0 ? 'active' : ''}`}
+            type="button"
+          >
+            <TrendingUp size={16} />
+            <span>Dashboard</span>
           </button>
-          <div className="current-month-display">
-            {currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-          </div>
-          <button onClick={handleNextMonth} className="nav-btn" title="Next Month">
-            <ChevronRight size={20} />
+          <button 
+            onClick={() => { setActiveTab(1); setShowSettingsDropdown(false); }} 
+            className={`desktop-nav-btn ${activeTab === 1 ? 'active' : ''}`}
+            type="button"
+          >
+            <CreditCardIcon size={16} />
+            <span>Credit Cards</span>
+          </button>
+          <button 
+            onClick={() => { setActiveTab(2); setShowSettingsDropdown(false); }} 
+            className={`desktop-nav-btn ${activeTab === 2 ? 'active' : ''}`}
+            type="button"
+          >
+            <Calendar size={16} />
+            <span>Bills</span>
+          </button>
+          <button 
+            onClick={() => { setActiveTab(3); setShowSettingsDropdown(false); }} 
+            className={`desktop-nav-btn ${activeTab === 3 ? 'active' : ''}`}
+            type="button"
+          >
+            <Target size={16} />
+            <span>Goals</span>
+          </button>
+          <button 
+            onClick={() => { setActiveTab(4); setShowSettingsDropdown(false); }} 
+            className={`desktop-nav-btn ${activeTab === 4 ? 'active' : ''}`}
+            type="button"
+          >
+            <Wallet size={16} />
+            <span>Log & Import</span>
           </button>
         </div>
 
         <div className="header-actions">
-          {/* Rewards Badge */}
-          <div className="rewards-nav-badge" title="Estimated monthly cashback rewards owed across cards">
-            <Sparkles size={14} className="glow-icon" />
-            <span>Rewards: {formatCurrency(estimatedTotalRewards)}</span>
-          </div>
-
-          <button onClick={handleResetAllData} className="reset-data-btn" title="Reset all data back to default preset samples">
-            <RefreshCw size={14} />
-            <span>Reset Preset</span>
-          </button>
-
-          {/* Sign Out Button */}
-          <button onClick={signOut} className="sign-out-btn" title="Sign out of your account">
-            <LogOut size={14} />
-            <span>Sign Out</span>
+          <button 
+            onClick={() => setShowSettingsDropdown(!showSettingsDropdown)} 
+            className="avatar-circle-btn avatar-mobile-circle"
+            type="button"
+          >
+            {user?.email ? user.email.substring(0, 2).toUpperCase() : 'U'}
           </button>
         </div>
       </header>
 
-      {/* Hero: Waterfall Chart */}
-      <section className="glass-card waterfall-card">
-        <div className="card-title-bar">
-          <h2>
-            <TrendingUp size={18} style={{ color: 'var(--accent-blue)' }} />
-            Waterfall Capital Flow
-          </h2>
-          <span className="chart-legend-text">INCOME → BILLS → CARD PAYOFFS → FREE CASH → INVEST & SPEND</span>
+      {/* Settings Dropdown Panel */}
+      {showSettingsDropdown && (
+        <div className="settings-dropdown-menu glass-card">
+          <div className="dropdown-user-info">
+            <span className="dropdown-email">{user?.email || 'Logged in user'}</span>
+          </div>
+          <div className="dropdown-divider"></div>
+          <div className="dropdown-item rewards-item">
+            <Sparkles size={14} className="text-teal" />
+            <span>Rewards: {formatCurrency(estimatedTotalRewards)}</span>
+          </div>
+          <div className="dropdown-divider"></div>
+          <button 
+            onClick={async () => {
+              setShowSettingsDropdown(false);
+              await handleResetAllData();
+            }} 
+            className="dropdown-btn"
+            type="button"
+          >
+            <RefreshCw size={14} />
+            <span>Reset Preset</span>
+          </button>
+          <button 
+            onClick={() => {
+              setShowSettingsDropdown(false);
+              signOut();
+            }} 
+            className="dropdown-btn logout"
+            type="button"
+          >
+            <LogOut size={14} />
+            <span>Sign Out</span>
+          </button>
         </div>
-        
-        <div className="chart-container waterfall-chart-container">
-          {txLoading || cardLoading || billsLoading || goalsLoading ? (
-            <div className="loading-placeholder">
-              <RefreshCw size={24} className="spinner-icon text-teal" />
-              <span>Fetching cloud charts...</span>
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart 
-                layout="vertical" 
-                data={waterfallData}
-                margin={{ top: 10, right: 20, left: 10, bottom: 10 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" horizontal={false} />
-                <XAxis 
-                  type="number"
-                  stroke="var(--text-muted)" 
-                  fontSize={11} 
-                  tickLine={false} 
-                  axisLine={false} 
-                  tickFormatter={(val) => `$${val}`}
-                />
-                <YAxis 
-                  dataKey="name"
-                  type="category"
-                  stroke="var(--text-muted)" 
-                  fontSize={11} 
-                  tickLine={false} 
-                  axisLine={false}
-                  width={130}
-                />
-                <Tooltip content={<CustomWaterfallTooltip />} cursor={{ fill: 'rgba(255,255,255,0.02)' }} />
-                <Bar dataKey="range" radius={[4, 4, 4, 4]}>
-                  {waterfallData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-      </section>
+      )}
 
-      {/* Row 2: Credit Card Tracker (Left) & Bill Calendar (Right) */}
-      <section className="charts-grid tracker-layout">
-        
-        {/* Credit Card Tracker */}
-        <div className="glass-card cc-tracker-card">
+      {/* --- DASHBOARD VIEW (Tab 0 or Desktop) --- */}
+      <div className={`tab-section ${activeTab === 0 ? 'active' : ''}`}>
+        <Dashboard 
+          transactions={transactions}
+          creditCards={creditCards}
+          monthlySummary={monthlySummary}
+          monthlyBillsTotal={monthlyBillsTotal}
+          monthlyCardPayoffsTotal={monthlyCardPayoffsTotal}
+          spendEnvelopeMetrics={spendEnvelopeMetrics}
+          daysLeftInMonth={daysLeftInMonth}
+          dailySpendAllowance={dailySpendAllowance}
+          formatCurrency={formatCurrency}
+          txLoading={txLoading}
+          cardLoading={cardLoading}
+          billsLoading={billsLoading}
+          goalsLoading={goalsLoading}
+          currentDate={currentDate}
+          windowWidth={windowWidth}
+        />
+      </div>
+
+      {/* --- CARDS VIEW (Tab 1 or Desktop) --- */}
+      <div className={`tab-section ${activeTab === 1 ? 'active' : ''}`}>
+        <div className="glass-card cc-tracker-card full-card">
           <div className="card-title-bar">
             <h2>
               <CreditCardIcon size={18} style={{ color: 'var(--accent-blue)' }} />
-              Cards & Routing
+              Credit Cards
             </h2>
             <button onClick={() => setShowAddCard(true)} className="add-btn">
               <Plus size={14} /> Add Card
@@ -1194,9 +1342,8 @@ function App() {
 
           <div className="cc-list">
             {cardLoading ? (
-              <div className="loading-placeholder">
-                <RefreshCw size={20} className="spinner-icon text-teal" />
-                <span>Syncing cards...</span>
+              <div className="skeleton-list">
+                {[1, 2].map(i => <div key={i} className="skeleton-card pulse"></div>)}
               </div>
             ) : creditCards.length > 0 ? (
               creditCards.map((card) => {
@@ -1208,6 +1355,7 @@ function App() {
                 const isPaidOff = card.balance === 0;
                 const issuerInfo = getIssuerColor(card.issuer);
                 const cardRewards = card.balance * ((parseFloat(card.cashback) || 0) / 100);
+                const notesOpen = !!openCardNotes[card.id];
 
                 return (
                   <div key={card.id} className="cc-card">
@@ -1225,9 +1373,14 @@ function App() {
                           {card.issuer}
                         </span>
                       </div>
-                      <button onClick={() => handleDeleteCard(card.id)} className="cc-delete-btn" title="Delete credit card">
-                        <Trash2 size={13} />
-                      </button>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button onClick={() => handleOpenEditCard(card)} className="cc-edit-btn" title="Edit credit card">
+                          <Edit2 size={13} />
+                        </button>
+                        <button onClick={() => handleDeleteCard(card.id)} className="cc-delete-btn" title="Delete credit card">
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="cc-details-row">
@@ -1273,19 +1426,60 @@ function App() {
                         </button>
                       </div>
                     </div>
+
+                    {/* Notes Section */}
+                    <div className="cc-notes-section">
+                      <button 
+                        onClick={() => toggleNotesCollapse(card.id)} 
+                        className="notes-toggle-btn"
+                        type="button"
+                      >
+                        {notesOpen ? 'Hide Notes' : 'Show Notes'}
+                      </button>
+
+                      {notesOpen && (
+                        <div className="notes-content-box">
+                          {inlineEditingCardNotesId === card.id ? (
+                            <div className="inline-notes-edit-form">
+                              <textarea
+                                value={inlineNotesValue}
+                                onChange={(e) => setInlineNotesValue(e.target.value)}
+                                className="form-input inline-notes-textarea"
+                                placeholder="Write card notes here..."
+                              />
+                              <div className="inline-notes-actions">
+                                <button onClick={() => handleSaveInlineNotes(card.id)} className="btn-small save">Save</button>
+                                <button onClick={() => setInlineEditingCardNotesId(null)} className="btn-small cancel">Cancel</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="notes-text-display">
+                              <p className="notes-text-p">{card.notes || <span className="no-notes-placeholder">No notes added. Click edit to add notes.</span>}</p>
+                              <button onClick={() => handleStartInlineNotesEdit(card)} className="notes-inline-edit-btn" title="Edit notes inline">
+                                <Edit2 size={12} />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })
             ) : (
               <div className="empty-state">
+                <CreditCardIcon size={40} className="empty-icon text-muted" />
                 <p>No credit cards configured.</p>
+                <button onClick={() => setShowAddCard(true)} className="add-btn mt-button">Add Card</button>
               </div>
             )}
           </div>
         </div>
+      </div>
 
-        {/* Bill Calendar */}
-        <div className="glass-card bill-calendar-card">
+      {/* --- CALENDAR VIEW (Tab 2 or Desktop) --- */}
+      <div className={`tab-section ${activeTab === 2 ? 'active' : ''}`}>
+        <div className="glass-card bill-calendar-card full-card">
           <div className="card-title-bar">
             <h2>
               <Calendar size={18} style={{ color: 'var(--accent-blue)' }} />
@@ -1354,13 +1548,11 @@ function App() {
             )}
           </div>
         </div>
-      </section>
+      </div>
 
-      {/* Row 3: Goals and Envelopes */}
-      <section className="charts-grid tracker-layout">
-        
-        {/* Investment Goal Tracker */}
-        <div className="glass-card investment-tracker-card">
+      {/* --- GOALS VIEW (Tab 3 or Desktop) --- */}
+      <div className={`tab-section ${activeTab === 3 ? 'active' : ''}`}>
+        <div className="glass-card investment-tracker-card full-card">
           <div className="card-title-bar">
             <h2>
               <Target size={18} style={{ color: 'var(--accent-blue)' }} />
@@ -1373,9 +1565,8 @@ function App() {
 
           <div className="goals-grid">
             {goalsLoading ? (
-              <div className="loading-placeholder">
-                <RefreshCw size={20} className="spinner-icon text-teal" />
-                <span>Syncing goals...</span>
+              <div className="skeleton-list">
+                {[1].map(i => <div key={i} className="skeleton-card pulse"></div>)}
               </div>
             ) : investmentGoals.length > 0 ? (
               investmentGoals.map((goal) => {
@@ -1434,358 +1625,328 @@ function App() {
               })
             ) : (
               <div className="empty-state">
+                <Target size={40} className="empty-icon text-muted" />
                 <p>No investment goals set.</p>
+                <button onClick={() => setShowAddGoal(true)} className="add-btn mt-button">Add Goal</button>
               </div>
             )}
           </div>
         </div>
+      </div>
 
-        {/* Spend Envelope */}
-        <div className="glass-card spend-envelope-card">
-          <div className="card-title-bar">
-            <h2>
-              <Bookmark size={18} style={{ color: 'var(--accent-blue)' }} />
-              Spend Envelope
-            </h2>
-          </div>
-
-          <div className="envelope-display-container">
-            <div className="envelope-progress-section">
-              <div className="envelope-header-row">
-                <span className="env-title">Envelope Budget</span>
-                <span className={`env-status-percent ${spendColorClass}`}>
-                  {spendEnvelopeMetrics.percent.toFixed(0)}% Left
-                </span>
-              </div>
-
-              {/* Progress bar */}
-              <div className="cc-util-bar envelope-bar-wrap">
-                <div 
-                  className={`cc-util-fill ${spendColorClass}`}
-                  style={{ width: `${Math.min(100, spendEnvelopeMetrics.percent)}%` }}
-                ></div>
-              </div>
-
-              <div className="envelope-amounts-row">
-                <div>
-                  <span className="env-sub-label">Discretionary Remaining</span>
-                  <p className="env-big-amount">{formatCurrency(spendEnvelopeMetrics.remaining)}</p>
-                </div>
-                <div className="text-right">
-                  <span className="env-sub-label">Total Allocated</span>
-                  <p className="env-small-amount">{formatCurrency(spendEnvelopeMetrics.total)}</p>
-                </div>
-              </div>
+      {/* --- TRANSACTIONS LOG & FORMS VIEW (Tab 4 or Desktop) --- */}
+      <div className={`tab-section ${activeTab === 4 ? 'active' : ''}`}>
+        <section className="workspace-grid full-grid-mobile">
+          {/* Transaction Input Form */}
+          <div className={`glass-card transaction-form-card ${successFlash ? 'form-success-flash' : ''} ${showMobileTxForm ? 'mobile-active' : ''}`}>
+            <div className="card-title-bar">
+              <h2>
+                <Plus size={18} style={{ color: 'var(--accent-blue)' }} />
+                Log Transaction
+              </h2>
+              <button 
+                type="button" 
+                className="mobile-sheet-close-btn" 
+                onClick={() => setShowMobileTxForm(false)}
+                aria-label="Close form sheet"
+              >
+                <X size={18} />
+              </button>
             </div>
 
-            <div className="envelope-details-box">
-              <div className="envelope-detail-column">
-                <span className="env-card-lbl">Days Remaining</span>
-                <p className="env-card-val">{daysLeftInMonth} Days</p>
-              </div>
-              <div className="envelope-detail-column text-right">
-                <span className="env-card-lbl">Daily Allowance</span>
-                <p className="env-card-val text-purple">{formatCurrency(dailySpendAllowance)}/day</p>
-              </div>
-            </div>
-            
-            <p className="envelope-desc-footer">
-              Envelope budget subtracts monthly bills and investment contributions from your monthly income. As you log discretionary purchases, this budget shrinks.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* Row 4: Forms & Logs */}
-      <section className="workspace-grid">
-        
-        {/* Transaction Input Form */}
-        <div className={`glass-card transaction-form-card ${successFlash ? 'form-success-flash' : ''} ${showMobileTxForm ? 'mobile-active' : ''}`}>
-          <div className="card-title-bar">
-            <h2>
-              <Plus size={18} style={{ color: 'var(--accent-blue)' }} />
-              Log Transaction
-            </h2>
-            <button 
-              type="button" 
-              className="mobile-sheet-close-btn" 
-              onClick={() => setShowMobileTxForm(false)}
-              aria-label="Close form sheet"
-            >
-              <X size={18} />
-            </button>
-          </div>
-
-          <form onSubmit={handleSubmitTransaction} className="transaction-form">
-            <div className="form-group">
-              <label>Transaction Type</label>
-              <div className="type-toggle-container">
-                <button
-                  type="button"
-                  className={`type-toggle-btn expense ${txType === 'expense' ? 'active' : ''}`}
-                  onClick={() => handleTypeChange('expense')}
-                >
-                  <TrendingDown size={14} />
-                  Expense
-                </button>
-                <button
-                  type="button"
-                  className={`type-toggle-btn income ${txType === 'income' ? 'active' : ''}`}
-                  onClick={() => handleTypeChange('income')}
-                >
-                  <TrendingUp size={14} />
-                  Income
-                </button>
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="tx-desc">Description</label>
-              <div className="input-container">
-                <Tag className="input-icon" size={16} />
-                <input
-                  id="tx-desc"
-                  type="text"
-                  placeholder="e.g. Target Grocery"
-                  className={`form-input ${txErrors.description ? 'error' : ''}`}
-                  value={txDesc}
-                  onChange={(e) => setTxDesc(e.target.value)}
-                />
-              </div>
-              {txErrors.description && <span className="error-text">{txErrors.description}</span>}
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="tx-amount">Amount ($)</label>
-              <div className="input-container">
-                <DollarSign className="input-icon" size={16} />
-                <input
-                  id="tx-amount"
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  className={`form-input ${txErrors.amount ? 'error' : ''}`}
-                  value={txAmount}
-                  onChange={(e) => setTxAmount(e.target.value)}
-                />
-              </div>
-              {txErrors.amount && <span className="error-text">{txErrors.amount}</span>}
-            </div>
-
-            {txType === 'expense' ? (
+            <form onSubmit={handleSubmitTransaction} className="transaction-form">
               <div className="form-group">
-                <label htmlFor="tx-category">Category</label>
-                <div className="input-container">
-                  <Tag className="input-icon" size={16} />
-                  <select
-                    id="tx-category"
-                    className="form-select"
-                    value={txCategory}
-                    onChange={(e) => setTxCategory(e.target.value)}
+                <label>Transaction Type</label>
+                <div className="type-toggle-container">
+                  <button
+                    type="button"
+                    className={`type-toggle-btn expense ${txType === 'expense' ? 'active' : ''}`}
+                    onClick={() => handleTypeChange('expense')}
                   >
-                    {CATEGORIES.filter((c) => c !== 'Income').map((cat) => (
-                      <option key={cat} value={cat}>{CATEGORY_EMOJIS[cat]} {cat}</option>
-                    ))}
-                  </select>
+                    <TrendingDown size={14} />
+                    Expense
+                  </button>
+                  <button
+                    type="button"
+                    className={`type-toggle-btn income ${txType === 'income' ? 'active' : ''}`}
+                    onClick={() => handleTypeChange('income')}
+                  >
+                    <TrendingUp size={14} />
+                    Income
+                  </button>
                 </div>
               </div>
-            ) : (
+
               <div className="form-group">
-                <label>Category</label>
+                <label htmlFor="tx-desc">Description</label>
                 <div className="input-container">
                   <Tag className="input-icon" size={16} />
                   <input
+                    id="tx-desc"
                     type="text"
-                    className="form-input"
-                    value="💰 Income"
-                    disabled
-                    style={{ opacity: 0.6, cursor: 'not-allowed' }}
+                    placeholder="e.g. Target Grocery"
+                    className={`form-input ${txErrors.description ? 'error' : ''}`}
+                    value={txDesc}
+                    onChange={(e) => setTxDesc(e.target.value)}
                   />
                 </div>
+                {txErrors.description && <span className="error-text">{txErrors.description}</span>}
               </div>
-            )}
 
-            {txType === 'expense' && (
               <div className="form-group">
-                <label htmlFor="tx-card-id">Charge to Card</label>
+                <label htmlFor="tx-amount">Amount ($)</label>
                 <div className="input-container">
-                  <CreditCardIcon className="input-icon" size={16} />
-                  <select
-                    id="tx-card-id"
-                    className="form-select"
-                    value={txCardId}
-                    onChange={(e) => setTxCardId(e.target.value)}
-                  >
-                    <option value="">None / Paid in Cash</option>
-                    {creditCards.map((card) => (
-                      <option key={card.id} value={card.id}>{card.name} (Close: {card.statementClose})</option>
-                    ))}
-                  </select>
+                  <DollarSign className="input-icon" size={16} />
+                  <input
+                    id="tx-amount"
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    className={`form-input ${txErrors.amount ? 'error' : ''}`}
+                    value={txAmount}
+                    onChange={(e) => setTxAmount(e.target.value)}
+                  />
                 </div>
+                {txErrors.amount && <span className="error-text">{txErrors.amount}</span>}
               </div>
-            )}
 
-            <div className="form-group">
-              <label htmlFor="tx-date">Date</label>
-              <div className="input-container">
-                <Calendar className="input-icon" size={16} />
+              {txType === 'expense' ? (
+                <div className="form-group">
+                  <label htmlFor="tx-category">Category</label>
+                  <div className="input-container">
+                    <Tag className="input-icon" size={16} />
+                    <select
+                      id="tx-category"
+                      className="form-select"
+                      value={txCategory}
+                      onChange={(e) => setTxCategory(e.target.value)}
+                    >
+                      {CATEGORIES.filter((c) => c !== 'Income').map((cat) => (
+                        <option key={cat} value={cat}>{CATEGORY_EMOJIS[cat]} {cat}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                <div className="form-group">
+                  <label>Category</label>
+                  <div className="input-container">
+                    <Tag className="input-icon" size={16} />
+                    <input
+                      type="text"
+                      className="form-input"
+                      value="💰 Income"
+                      disabled
+                      style={{ opacity: 0.6, cursor: 'not-allowed' }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {txType === 'expense' && (
+                <div className="form-group">
+                  <label htmlFor="tx-card-id">Charge to Card</label>
+                  <div className="input-container">
+                    <CreditCardIcon className="input-icon" size={16} />
+                    <select
+                      id="tx-card-id"
+                      className="form-select"
+                      value={txCardId}
+                      onChange={(e) => setTxCardId(e.target.value)}
+                    >
+                      <option value="">None / Paid in Cash</option>
+                      {creditCards.map((card) => (
+                        <option key={card.id} value={card.id}>{card.name} (Close: {card.statementClose})</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              <div className="form-group">
+                <label htmlFor="tx-date">Date</label>
+                <div className="input-container">
+                  <Calendar className="input-icon" size={16} />
+                  <input
+                    id="tx-date"
+                    type="date"
+                    className={`form-input ${txErrors.date ? 'error' : ''}`}
+                    value={txDate}
+                    onChange={(e) => setTxDate(e.target.value)}
+                  />
+                </div>
+                {txErrors.date && <span className="error-text">{txErrors.date}</span>}
+              </div>
+
+              <button type="submit" className="submit-btn" disabled={txLoading}>
+                <Plus size={16} />
+                Submit Transaction
+              </button>
+            </form>
+          </div>
+
+          {/* Transaction History Log */}
+          <div className="glass-card scrollable-log-card" style={{ display: 'flex', flexDirection: 'column' }}>
+            <div className="card-title-bar">
+              <h2>
+                <Filter size={18} style={{ color: 'var(--accent-blue)' }} />
+                Transaction Log
+              </h2>
+              
+              {/* Import statement action button */}
+              <button 
+                onClick={() => setShowImportModal(true)} 
+                className="import-statement-btn"
+                title="Import statement files (CSV, PDF, OFX)"
+                type="button"
+              >
+                <FileSpreadsheet size={14} />
+                <span>Import Statement</span>
+              </button>
+            </div>
+
+            <div className="log-filters">
+              <div className="search-input-wrapper">
+                <Search className="input-icon" size={16} style={{ top: '12px' }} />
                 <input
-                  id="tx-date"
-                  type="date"
-                  className={`form-input ${txErrors.date ? 'error' : ''}`}
-                  value={txDate}
-                  onChange={(e) => setTxDate(e.target.value)}
+                  type="text"
+                  placeholder="Search description..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-              {txErrors.date && <span className="error-text">{txErrors.date}</span>}
+
+              <select
+                className="filter-select"
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value)}
+              >
+                <option value="All">All Types</option>
+                <option value="income">Income Only</option>
+                <option value="expense">Expense Only</option>
+              </select>
+
+              <select
+                className="filter-select"
+                value={filterCategory}
+                onChange={(e) => setFilterCategory(e.target.value)}
+              >
+                <option value="All">All Categories</option>
+                {CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>{CATEGORY_EMOJIS[cat]} {cat}</option>
+                ))}
+              </select>
             </div>
 
-            <button type="submit" className="submit-btn" disabled={txLoading}>
-              <Plus size={16} />
-              Submit Transaction
-            </button>
-          </form>
-        </div>
+            <div className="transaction-list-container">
+              {txLoading ? (
+                <div className="skeleton-list">
+                  {[1, 2, 3].map(i => <div key={i} className="skeleton-row pulse"></div>)}
+                </div>
+              ) : filteredTransactions.length > 0 ? (
+                <div className="transaction-list">
+                  {filteredTransactions.map((tx) => {
+                    const card = creditCards.find((c) => c.id === tx.cardId);
+                    
+                    // Format date dynamically using date-fns
+                    let formattedTxDate = tx.date;
+                    try {
+                      formattedTxDate = format(new Date(tx.date + 'T00:00:00'), 'MMM d, yyyy');
+                    } catch (e) {
+                      console.error('Failed to format date:', tx.date, e);
+                    }
 
-        {/* Transaction History Log */}
-        <div className="glass-card scrollable-log-card" style={{ display: 'flex', flexDirection: 'column' }}>
-          <div className="card-title-bar">
-            <h2>
-              <Filter size={18} style={{ color: 'var(--accent-blue)' }} />
-              Transaction Log
-            </h2>
-          </div>
-
-          <div className="log-filters">
-            <div className="search-input-wrapper">
-              <Search className="input-icon" size={16} style={{ top: '12px' }} />
-              <input
-                type="text"
-                placeholder="Search description..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-
-            <select
-              className="filter-select"
-              value={filterType}
-              onChange={(e) => setFilterType(e.target.value)}
-            >
-              <option value="All">All Types</option>
-              <option value="income">Income Only</option>
-              <option value="expense">Expense Only</option>
-            </select>
-
-            <select
-              className="filter-select"
-              value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value)}
-            >
-              <option value="All">All Categories</option>
-              {CATEGORIES.map((cat) => (
-                <option key={cat} value={cat}>{CATEGORY_EMOJIS[cat]} {cat}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="transaction-list-container">
-            {txLoading ? (
-              <div className="loading-placeholder" style={{ height: '200px' }}>
-                <RefreshCw size={24} className="spinner-icon text-teal" />
-                <span>Syncing transactions...</span>
-              </div>
-            ) : filteredTransactions.length > 0 ? (
-              <div className="transaction-list">
-                {filteredTransactions.map((tx) => {
-                  const card = creditCards.find((c) => c.id === tx.cardId);
-                  return (
-                    <div key={tx.id} className="transaction-item">
-                      <div className="item-left">
-                        <div 
-                          className="category-icon-indicator"
-                          style={{
-                            backgroundColor: `${CATEGORY_COLORS[tx.category]}1a`,
-                            color: CATEGORY_COLORS[tx.category],
-                            border: `1px solid ${CATEGORY_COLORS[tx.category]}26`,
-                            fontSize: '1.2rem'
-                          }}
-                        >
-                          {CATEGORY_EMOJIS[tx.category] || '📦'}
-                        </div>
-                        
-                        <div className="item-details">
-                          <h4>{tx.description}</h4>
-                          <div className="item-meta">
-                            <span>{tx.date}</span>
-                            <span>•</span>
-                            <span 
-                              className="badge"
-                              style={{
-                                backgroundColor: `${CATEGORY_COLORS[tx.category]}22`,
-                                color: CATEGORY_COLORS[tx.category],
-                                border: `1px solid ${CATEGORY_COLORS[tx.category]}33`
-                              }}
-                            >
-                              {tx.category}
-                            </span>
-                            {card && (
-                              <>
-                                <span>•</span>
-                                <span className="transaction-card-badge">
-                                  💳 {card.name}
-                                </span>
-                              </>
-                            )}
+                    return (
+                      <div key={tx.id} className="transaction-item">
+                        <div className="item-left">
+                          <div 
+                            className="category-icon-indicator"
+                            style={{
+                              backgroundColor: `${CATEGORY_COLORS[tx.category]}1a`,
+                              color: CATEGORY_COLORS[tx.category],
+                              border: `1px solid ${CATEGORY_COLORS[tx.category]}26`,
+                              fontSize: '1.2rem'
+                            }}
+                          >
+                            {CATEGORY_EMOJIS[tx.category] || '📦'}
+                          </div>
+                          
+                          <div className="item-details">
+                            <h4>{tx.description}</h4>
+                            <div className="item-meta">
+                              <span>{formattedTxDate}</span>
+                              <span>•</span>
+                              <span 
+                                className="badge"
+                                style={{
+                                  backgroundColor: `${CATEGORY_COLORS[tx.category]}22`,
+                                  color: CATEGORY_COLORS[tx.category],
+                                  border: `1px solid ${CATEGORY_COLORS[tx.category]}33`
+                                }}
+                              >
+                                {tx.category}
+                              </span>
+                              {card && (
+                                <>
+                                  <span>•</span>
+                                  <span className="transaction-card-badge">
+                                    💳 {card.name}
+                                  </span>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      <div className="item-right">
-                        <span className={`item-amount ${tx.type}`}>
-                          {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount)}
-                        </span>
-                        <button 
-                          className="delete-btn" 
-                          onClick={() => handleDeleteTransaction(tx.id)}
-                          title="Delete record"
-                          disabled={txLoading}
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                        <div className="item-right">
+                          <span className={`item-amount ${tx.type}`}>
+                            {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount)}
+                          </span>
+                          <button 
+                            className="delete-btn" 
+                            onClick={() => handleDeleteTransaction(tx.id)}
+                            title="Delete record"
+                            disabled={txLoading}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="empty-state">
-                <p>No matching transactions found.</p>
-                {(searchTerm || filterCategory !== 'All' || filterType !== 'All') && (
-                  <button
-                    onClick={() => {
-                      setSearchTerm('');
-                      setFilterCategory('All');
-                      setFilterType('All');
-                    }}
-                    className="clear-filters-link"
-                  >
-                    Clear active filters
-                  </button>
-                )}
-              </div>
-            )}
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <Wallet size={40} className="empty-icon text-muted" />
+                  <p>No matching transactions found.</p>
+                  {(searchTerm || filterCategory !== 'All' || filterType !== 'All') ? (
+                    <button
+                      onClick={() => {
+                        setSearchTerm('');
+                        setFilterCategory('All');
+                        setFilterType('All');
+                      }}
+                      className="clear-filters-link"
+                    >
+                      Clear active filters
+                    </button>
+                  ) : (
+                    <button onClick={() => setShowMobileTxForm(true)} className="add-btn mt-button">Add Transaction</button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </div>
 
-      {/* --- ADD CARD MODAL DIALOG --- */}
+      {/* --- ADD / EDIT CARD MODAL DIALOG --- */}
       {showAddCard && (
         <div className="modal-overlay">
           <div className="modal-box glass-card">
             <div className="modal-header">
-              <h3>Add Credit Card</h3>
-              <button onClick={() => setShowAddCard(false)} className="close-btn">
+              <h3>{editingCard ? 'Edit Credit Card' : 'Add Credit Card'}</h3>
+              <button onClick={handleCloseCardForm} className="close-btn" aria-label="Close card form">
                 <X size={20} />
               </button>
             </div>
@@ -1874,8 +2035,20 @@ function App() {
                 />
               </div>
 
+              {/* Notes Textarea Field */}
+              <div className="form-group">
+                <label>Notes</label>
+                <textarea 
+                  className="form-input notes-textarea"
+                  placeholder="e.g. Groceries only / 0% APR until March 2026..." 
+                  value={newCardNotes}
+                  onChange={(e) => setNewCardNotes(e.target.value)}
+                  style={{ paddingLeft: '16px', minHeight: '80px', resize: 'vertical' }}
+                />
+              </div>
+
               <button type="submit" className="submit-btn" style={{ marginTop: '12px' }}>
-                <Plus size={16} /> Save Credit Card
+                <Plus size={16} /> {editingCard ? 'Update Credit Card' : 'Save Credit Card'}
               </button>
             </form>
           </div>
@@ -1888,7 +2061,7 @@ function App() {
           <div className="modal-box glass-card">
             <div className="modal-header">
               <h3>Add Investment Goal</h3>
-              <button onClick={() => setShowAddGoal(false)} className="close-btn">
+              <button onClick={() => setShowAddGoal(false)} className="close-btn" aria-label="Close goal form">
                 <X size={20} />
               </button>
             </div>
@@ -1960,7 +2133,7 @@ function App() {
           <div className="modal-box glass-card">
             <div className="modal-header">
               <h3>Make Card Payment</h3>
-              <button onClick={() => setPayingCardId(null)} className="close-btn">
+              <button onClick={() => setPayingCardId(null)} className="close-btn" aria-label="Close payment modal">
                 <X size={20} />
               </button>
             </div>
@@ -1998,7 +2171,7 @@ function App() {
           <div className="modal-box glass-card calendar-modal">
             <div className="modal-header">
               <h3>Day Details: {selectedCalendarDay}</h3>
-              <button onClick={() => setSelectedCalendarDay(null)} className="close-btn">
+              <button onClick={() => setSelectedCalendarDay(null)} className="close-btn" aria-label="Close day modal">
                 <X size={20} />
               </button>
             </div>
@@ -2131,32 +2304,43 @@ function App() {
         </div>
       )}
 
+      {/* --- FINANCIAL STATEMENT IMPORT MODAL --- */}
+      {showImportModal && (
+        <ImportModal 
+          onClose={() => setShowImportModal(false)}
+          onImportConfirm={handleBulkImportTransactions}
+          creditCards={creditCards}
+          existingTransactions={transactions}
+          addToast={addToast}
+        />
+      )}
+
       {/* Mobile sheet backdrop and bottom menu overlay */}
       {showMobileTxForm && (
         <div className="mobile-sheet-backdrop" onClick={() => setShowMobileTxForm(false)} />
       )}
 
-      {/* Mobile Bottom Navigation */}
+      {/* Mobile Bottom Navigation with Active Indicator Bar */}
       <div className="mobile-bottom-nav">
-        <button onClick={handlePrevMonth} className="mobile-nav-btn" title="Previous Month" type="button">
-          <ChevronLeft size={20} />
+        <button onClick={() => setActiveTab(0)} className={`mobile-nav-btn ${activeTab === 0 ? 'active' : ''}`} title="Dashboard" type="button">
+          <span className="tab-indicator-line"></span>
+          <TrendingUp size={20} />
         </button>
-        <button 
-          onClick={() => setShowMobileTxForm(true)} 
-          className="mobile-nav-btn mobile-add-btn" 
-          title="Log Transaction"
-          type="button"
-        >
-          <Plus size={24} />
+        <button onClick={() => setActiveTab(1)} className={`mobile-nav-btn ${activeTab === 1 ? 'active' : ''}`} title="Cards" type="button">
+          <span className="tab-indicator-line"></span>
+          <CreditCardIcon size={20} />
         </button>
-        <button onClick={handleNextMonth} className="mobile-nav-btn" title="Next Month" type="button">
-          <ChevronRight size={20} />
+        <button onClick={() => setActiveTab(2)} className={`mobile-nav-btn ${activeTab === 2 ? 'active' : ''}`} title="Calendar" type="button">
+          <span className="tab-indicator-line"></span>
+          <Calendar size={20} />
         </button>
-        <button onClick={handleResetAllData} className="mobile-nav-btn" title="Reset Presets" type="button">
-          <RefreshCw size={18} />
+        <button onClick={() => setActiveTab(3)} className={`mobile-nav-btn ${activeTab === 3 ? 'active' : ''}`} title="Goals" type="button">
+          <span className="tab-indicator-line"></span>
+          <Target size={20} />
         </button>
-        <button onClick={signOut} className="mobile-nav-btn" title="Sign Out" type="button">
-          <LogOut size={18} />
+        <button onClick={() => setActiveTab(4)} className={`mobile-nav-btn ${activeTab === 4 ? 'active' : ''}`} title="Log & Imports" type="button">
+          <span className="tab-indicator-line"></span>
+          <Wallet size={20} />
         </button>
       </div>
 

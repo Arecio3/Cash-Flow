@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { useOnlineStatus } from './useOnlineStatus';
 
 const mapToUI = (dbCard) => ({
   id: dbCard.id,
@@ -9,7 +10,8 @@ const mapToUI = (dbCard) => ({
   balance: parseFloat(dbCard.current_balance) || 0,
   statementClose: dbCard.statement_due_date,
   cashback: parseFloat(dbCard.cashback_rate) || 0,
-  apr: parseFloat(dbCard.apr) || 0
+  apr: parseFloat(dbCard.apr) || 0,
+  notes: dbCard.notes || ''
 });
 
 const mapToDB = (uiCard, userId) => {
@@ -21,14 +23,16 @@ const mapToDB = (uiCard, userId) => {
   if (uiCard.statementClose !== undefined) dbObj.statement_due_date = uiCard.statementClose;
   if (uiCard.cashback !== undefined) dbObj.cashback_rate = parseFloat(uiCard.cashback) || 0;
   if (uiCard.apr !== undefined) dbObj.apr = parseFloat(uiCard.apr) || 0;
+  if (uiCard.notes !== undefined) dbObj.notes = uiCard.notes;
   if (userId) dbObj.user_id = userId;
   return dbObj;
 };
 
-export function useCreditCards(userId) {
+export function useCreditCards(userId, onStatusChange) {
   const [creditCards, setCreditCards] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const { isOnline } = useOnlineStatus();
 
   useEffect(() => {
     if (!userId) {
@@ -37,6 +41,8 @@ export function useCreditCards(userId) {
       }, 0);
       return;
     }
+
+    let channel = null;
 
     const fetchCards = async () => {
       setLoading(true);
@@ -59,12 +65,59 @@ export function useCreditCards(userId) {
     };
 
     fetchCards();
-  }, [userId]);
+
+    // Subscribe to realtime database channel
+    if (isOnline) {
+      channel = supabase
+        .channel(`realtime:credit_cards:${userId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'credit_cards',
+            filter: `user_id=eq.${userId}`
+          },
+          (payload) => {
+            const { eventType, new: newRow, old: oldRow } = payload;
+            if (eventType === 'INSERT') {
+              const uiCard = mapToUI(newRow);
+              setCreditCards((prev) => {
+                if (prev.some((c) => c.id === uiCard.id)) return prev;
+                return [...prev, uiCard];
+              });
+            } else if (eventType === 'UPDATE') {
+              const uiCard = mapToUI(newRow);
+              setCreditCards((prev) =>
+                prev.map((c) => (c.id === uiCard.id ? uiCard : c))
+              );
+            } else if (eventType === 'DELETE') {
+              setCreditCards((prev) => prev.filter((c) => c.id !== oldRow.id));
+            }
+          }
+        )
+        .subscribe((status) => {
+          if (onStatusChange) {
+            onStatusChange(status === 'SUBSCRIBED' ? 'connected' : 'reconnecting');
+          }
+        });
+    } else {
+      if (onStatusChange) {
+        onStatusChange('reconnecting');
+      }
+    }
+
+    return () => {
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
+    };
+  }, [userId, isOnline, onStatusChange]);
 
   const add = async (newCard) => {
     if (!userId) return null;
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    const optimisticItem = { ...newCard, id: tempId };
+    const optimisticItem = { ...newCard, id: tempId, notes: newCard.notes || '' };
 
     setCreditCards((prev) => [...prev, optimisticItem]);
 

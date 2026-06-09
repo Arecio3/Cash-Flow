@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { useOnlineStatus } from './useOnlineStatus';
 
 const mapToUI = (dbGoal) => ({
   id: dbGoal.id,
@@ -19,10 +20,11 @@ const mapToDB = (uiGoal, userId) => {
   return dbObj;
 };
 
-export function useInvestmentGoals(userId) {
+export function useInvestmentGoals(userId, onStatusChange) {
   const [investmentGoals, setInvestmentGoals] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const { isOnline } = useOnlineStatus();
 
   useEffect(() => {
     if (!userId) {
@@ -31,6 +33,8 @@ export function useInvestmentGoals(userId) {
       }, 0);
       return;
     }
+
+    let channel = null;
 
     const fetchGoals = async () => {
       setLoading(true);
@@ -53,7 +57,53 @@ export function useInvestmentGoals(userId) {
     };
 
     fetchGoals();
-  }, [userId]);
+
+    if (isOnline) {
+      channel = supabase
+        .channel(`realtime:investment_goals:${userId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'investment_goals',
+            filter: `user_id=eq.${userId}`
+          },
+          (payload) => {
+            const { eventType, new: newRow, old: oldRow } = payload;
+            if (eventType === 'INSERT') {
+              const uiGoal = mapToUI(newRow);
+              setInvestmentGoals((prev) => {
+                if (prev.some((g) => g.id === uiGoal.id)) return prev;
+                return [...prev, uiGoal];
+              });
+            } else if (eventType === 'UPDATE') {
+              const uiGoal = mapToUI(newRow);
+              setInvestmentGoals((prev) =>
+                prev.map((g) => (g.id === uiGoal.id ? uiGoal : g))
+              );
+            } else if (eventType === 'DELETE') {
+              setInvestmentGoals((prev) => prev.filter((g) => g.id !== oldRow.id));
+            }
+          }
+        )
+        .subscribe((status) => {
+          if (onStatusChange) {
+            onStatusChange(status === 'SUBSCRIBED' ? 'connected' : 'reconnecting');
+          }
+        });
+    } else {
+      if (onStatusChange) {
+        onStatusChange('reconnecting');
+      }
+    }
+
+    return () => {
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
+    };
+  }, [userId, isOnline, onStatusChange]);
 
   const add = async (newGoal) => {
     if (!userId) return null;
